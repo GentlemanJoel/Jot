@@ -1,5 +1,7 @@
 package com.gentlemanjoel.jot.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,38 +12,40 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.FormatQuote
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Title
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
@@ -61,14 +65,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -76,11 +77,16 @@ import com.gentlemanjoel.jot.BuildConfig
 import com.gentlemanjoel.jot.Draft
 import com.gentlemanjoel.jot.NoteNode
 import com.gentlemanjoel.jot.NoteStore
+import com.gentlemanjoel.jot.Pin
+import com.gentlemanjoel.jot.PanelWidth
+import com.gentlemanjoel.jot.Prefs
 import com.gentlemanjoel.jot.UpdateInfo
 import com.gentlemanjoel.jot.Updater
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
+
+private enum class Screen { HOME, EDITOR, SETTINGS }
 
 @Composable
 fun JotApp() {
@@ -89,18 +95,20 @@ fun JotApp() {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val bodyFocus = remember { FocusRequester() }
 
+    var screen by remember { mutableStateOf(Screen.EDITOR) }
     var tree by remember { mutableStateOf(NoteStore.loadTree()) }
     val expanded = remember { mutableStateListOf<String>() }
+    var pins by remember { mutableStateOf(Prefs.pins(context)) }
+    var panelWidth by remember { mutableStateOf(Prefs.panelWidth(context)) }
 
     var currentFile by remember { mutableStateOf<File?>(null) }
     var currentDir by remember { mutableStateOf(NoteStore.ensureRoot()) }
     var title by remember { mutableStateOf("") }
     var body by remember { mutableStateOf(TextFieldValue("")) }
+    var readMode by remember { mutableStateOf(false) }
+    var showToolbar by remember { mutableStateOf(false) }
 
-    var mdMode by remember { mutableStateOf(false) }
-    var preview by remember { mutableStateOf(false) }
     var overflow by remember { mutableStateOf(false) }
-
     var dialog by remember { mutableStateOf<DialogState?>(null) }
     var status by remember { mutableStateOf<String?>(null) }
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
@@ -110,24 +118,34 @@ fun JotApp() {
 
     fun refresh() {
         tree = NoteStore.loadTree()
+        Prefs.prune(context)
+        pins = Prefs.pins(context)
     }
 
     fun persist() {
+        val before = currentFile
         val saved = NoteStore.save(draft())
+        // Keep a pin attached across a rename triggered by a title change.
+        if (before != null && saved != null && before.absolutePath != saved.absolutePath) {
+            Prefs.repath(context, before.absolutePath, saved.absolutePath)
+        }
         currentFile = saved
         refresh()
     }
 
-    fun newNote(dir: File) {
+    fun newNote(dir: File = NoteStore.ensureRoot()) {
         persist()
         currentFile = null
         currentDir = dir
         title = ""
         body = TextFieldValue("")
-        preview = false
+        readMode = false
+        showToolbar = false
+        screen = Screen.EDITOR
         scope.launch {
             drawerState.close()
-            bodyFocus.requestFocus()
+            delay(80)
+            runCatching { bodyFocus.requestFocus() }
         }
     }
 
@@ -138,19 +156,26 @@ fun JotApp() {
         currentDir = d.dir
         title = d.title
         body = TextFieldValue(d.body)
-        preview = false
+        readMode = true          // existing notes open readable + tappable
+        showToolbar = false
+        screen = Screen.EDITOR
         scope.launch { drawerState.close() }
     }
 
-    // Cold start lands on a blank note with the cursor in the body.
+    fun goHome() {
+        persist()
+        screen = Screen.HOME
+    }
+
+    // Cold start: straight into a blank note with the caret in the body.
     LaunchedEffect(Unit) {
         NoteStore.ensureRoot()
         refresh()
-        delay(120)
+        delay(140)
         runCatching { bodyFocus.requestFocus() }
     }
 
-    // Debounced autosave.
+    // Debounced autosave while typing.
     LaunchedEffect(Unit) {
         snapshotFlow { title to body.text }.collect {
             delay(900)
@@ -158,7 +183,7 @@ fun JotApp() {
         }
     }
 
-    // Save when the app goes to the background.
+    // Save on backgrounding.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val obs = LifecycleEventObserver { _, event ->
@@ -168,70 +193,130 @@ fun JotApp() {
         onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
 
-    // Right-hand drawer: flip layout direction around the drawer only.
-    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-        ModalNavigationDrawer(
-            drawerState = drawerState,
-            drawerContent = {
-                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                    ModalDrawerSheet(
-                        drawerContainerColor = Slate.Secondary,
-                        modifier = Modifier.width(290.dp),
-                    ) {
-                        DrawerTree(
-                            tree = tree,
-                            openFile = currentFile,
-                            expanded = expanded.toMutableSet(),
-                            onToggleFolder = { path ->
-                                if (expanded.contains(path)) expanded.remove(path) else expanded.add(path)
-                            },
-                            onOpenNote = { openNote(it) },
-                            onNewNoteIn = { newNote(it) },
-                            onNewFolderIn = { dialog = DialogState.NewFolder(it) },
-                            onRename = { dialog = DialogState.Rename(it) },
-                            onDelete = { dialog = DialogState.Delete(it) },
-                        )
+    fun checkForUpdate() {
+        status = "Checking for updates..."
+        scope.launch {
+            Updater.check(context)
+                .onSuccess { info ->
+                    if (info == null) {
+                        status = "You're on the latest version."
+                        update = null
+                    } else {
+                        status = null
+                        update = info
                     }
                 }
-            },
-        ) {
-            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                Editor(
-                    title = title,
-                    onTitleChange = { title = it },
-                    body = body,
-                    onBodyChange = { body = it },
-                    bodyFocus = bodyFocus,
-                    mdMode = mdMode,
-                    preview = preview,
-                    overflow = overflow,
-                    onOverflow = { overflow = it },
-                    onToggleMd = { mdMode = !mdMode },
-                    onTogglePreview = { preview = !preview },
-                    onOpenDrawer = { scope.launch { drawerState.open() } },
-                    onNewNote = { newNote(NoteStore.ensureRoot()) },
-                    onAbout = { dialog = DialogState.About },
-                    onCheckUpdate = {
-                        status = "Checking for updates…"
-                        scope.launch {
-                            val res = Updater.check(context)
-                            res.onSuccess { info ->
-                                if (info == null) {
-                                    status = "You're on the latest version."
-                                    update = null
-                                } else {
-                                    status = null
-                                    update = info
-                                }
-                            }.onFailure { status = it.message ?: "Update check failed." }
-                        }
-                    },
-                )
-            }
+                .onFailure { status = it.message ?: "Update check failed." }
         }
     }
 
-    // ---- dialogs ----
+    // Back button: close the drawer, else fall back toward Home, else leave the app.
+    BackHandler(enabled = drawerState.isOpen || screen != Screen.HOME) {
+        when {
+            drawerState.isOpen -> scope.launch { drawerState.close() }
+            screen == Screen.EDITOR -> goHome()
+            screen == Screen.SETTINGS -> screen = Screen.HOME
+            else -> Unit
+        }
+    }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet(
+                drawerContainerColor = Slate.Secondary,
+                modifier = Modifier.width(300.dp),
+            ) {
+                DrawerTree(
+                    tree = tree,
+                    openFile = currentFile,
+                    expanded = expanded.toMutableSet(),
+                    onToggleFolder = { path ->
+                        if (expanded.contains(path)) expanded.remove(path) else expanded.add(path)
+                    },
+                    onOpenNote = { openNote(it) },
+                    onNewNoteIn = { newNote(it) },
+                    onNewFolderIn = { dialog = DialogState.NewFolder(it) },
+                    onRename = { dialog = DialogState.Rename(it) },
+                    onDelete = { dialog = DialogState.Delete(it) },
+                )
+            }
+        },
+    ) {
+        when (screen) {
+            Screen.HOME -> HomeScreen(
+                pins = pins,
+                panelWidth = panelWidth,
+                onOpenSearch = { scope.launch { drawerState.open() } },
+                onOverflow = { overflow = it },
+                overflowOpen = overflow,
+                onSettings = { screen = Screen.SETTINGS },
+                onCheckUpdate = { checkForUpdate() },
+                onNewNote = { newNote() },
+                onOpenPin = { path -> openNote(File(path)) },
+                onMovePin = { p, d -> Prefs.movePin(context, p, d); pins = Prefs.pins(context) },
+                onSetIcon = { p, i -> Prefs.updatePin(context, p, icon = i); pins = Prefs.pins(context) },
+                onSetColor = { p, c -> Prefs.updatePin(context, p, color = c); pins = Prefs.pins(context) },
+                onUnpin = { p -> Prefs.unpin(context, p); pins = Prefs.pins(context) },
+            )
+
+            Screen.SETTINGS -> SettingsScreen(
+                panelWidth = panelWidth,
+                onPanelWidth = {
+                    Prefs.setPanelWidth(context, it)
+                    panelWidth = it
+                },
+                token = Prefs.token(context),
+                onToken = { Prefs.setToken(context, it) },
+                notesPath = NoteStore.root.absolutePath,
+                onBack = { screen = Screen.HOME },
+                onCheckUpdate = { checkForUpdate() },
+            )
+
+            Screen.EDITOR -> EditorScreen(
+                title = title,
+                onTitleChange = { title = it },
+                body = body,
+                onBodyChange = { new ->
+                    body = continueListOnNewline(body, new)
+                },
+                bodyFocus = bodyFocus,
+                readMode = readMode,
+                onEnterEdit = {
+                    readMode = false
+                    scope.launch { delay(60); runCatching { bodyFocus.requestFocus() } }
+                },
+                onToggleLine = { lineIndex ->
+                    val updated = toggleCheckboxAt(body.text, lineIndex)
+                    body = body.copy(text = updated)
+                    persist()
+                },
+                showToolbar = showToolbar,
+                onToggleToolbar = { showToolbar = !showToolbar },
+                isPinned = currentFile?.let { f -> pins.any { it.path == f.absolutePath } } ?: false,
+                canPin = currentFile != null,
+                onTogglePin = {
+                    currentFile?.let { f ->
+                        if (pins.any { it.path == f.absolutePath }) {
+                            Prefs.unpin(context, f.absolutePath)
+                        } else {
+                            Prefs.pin(context, f.absolutePath)
+                        }
+                        pins = Prefs.pins(context)
+                    }
+                },
+                onOpenSearch = { scope.launch { drawerState.open() } },
+                overflowOpen = overflow,
+                onOverflow = { overflow = it },
+                onSettings = { persist(); screen = Screen.SETTINGS },
+                onCheckUpdate = { checkForUpdate() },
+                onDone = { goHome() },
+                onNewNote = { newNote() },
+            )
+        }
+    }
+
+    // ---------------- dialogs ----------------
     when (val d = dialog) {
         is DialogState.NewFolder -> TextPrompt(
             titleText = "New folder",
@@ -244,6 +329,7 @@ fun JotApp() {
                 dialog = null
             },
         )
+
         is DialogState.Rename -> TextPrompt(
             titleText = "Rename",
             label = "New name",
@@ -251,15 +337,20 @@ fun JotApp() {
             confirm = "Rename",
             onDismiss = { dialog = null },
             onConfirm = { name ->
+                val old = d.node.file.absolutePath
                 val renamed = NoteStore.rename(d.node, name)
-                if (renamed != null && d.node.file == currentFile) {
-                    currentFile = renamed
-                    title = renamed.name.removeSuffix(".md")
+                if (renamed != null) {
+                    Prefs.repath(context, old, renamed.absolutePath)
+                    if (d.node.file == currentFile) {
+                        currentFile = renamed
+                        title = renamed.name.removeSuffix(".md")
+                    }
                 }
                 refresh()
                 dialog = null
             },
         )
+
         is DialogState.Delete -> AlertDialog(
             onDismissRequest = { dialog = null },
             containerColor = Slate.Secondary,
@@ -273,6 +364,7 @@ fun JotApp() {
             },
             confirmButton = {
                 TextButton(onClick = {
+                    Prefs.unpin(context, d.node.file.absolutePath)
                     if (d.node.file == currentFile) {
                         currentFile = null; title = ""; body = TextFieldValue("")
                     }
@@ -285,11 +377,7 @@ fun JotApp() {
                 TextButton(onClick = { dialog = null }) { Text("Cancel", color = Slate.Muted) }
             },
         )
-        DialogState.About -> AboutDialog(
-            onDismiss = { dialog = null },
-            onSaveToken = { Updater.saveToken(context, it) },
-            initialToken = Updater.savedToken(context),
-        )
+
         null -> Unit
     }
 
@@ -300,10 +388,7 @@ fun JotApp() {
             title = { Text("Update available: v${info.version}", color = Slate.Text, fontSize = 17.sp) },
             text = {
                 Column {
-                    Text(
-                        "You're on v${BuildConfig.VERSION_NAME}.",
-                        color = Slate.Muted, fontSize = 13.sp,
-                    )
+                    Text("You're on v${BuildConfig.VERSION_NAME}.", color = Slate.Muted, fontSize = 13.sp)
                     if (info.notes.isNotBlank()) {
                         Spacer(Modifier.height(8.dp))
                         Text(info.notes, color = Slate.Text, fontSize = 13.sp)
@@ -338,7 +423,12 @@ fun JotApp() {
                                 }
                         }
                     },
-                ) { Text(if (progress >= 0) "Downloading… $progress%" else "Download & install", color = Slate.Accent) }
+                ) {
+                    Text(
+                        if (progress >= 0) "Downloading... $progress%" else "Download & install",
+                        color = Slate.Accent,
+                    )
+                }
             },
             dismissButton = {
                 TextButton(enabled = progress < 0, onClick = { update = null }) {
@@ -360,77 +450,148 @@ fun JotApp() {
     }
 }
 
-// ------------------------------------------------------------------
+// ==================================================================
+// Home
+// ==================================================================
 
 @Composable
-private fun Editor(
+private fun HomeScreen(
+    pins: List<Pin>,
+    panelWidth: PanelWidth,
+    onOpenSearch: () -> Unit,
+    onOverflow: (Boolean) -> Unit,
+    overflowOpen: Boolean,
+    onSettings: () -> Unit,
+    onCheckUpdate: () -> Unit,
+    onNewNote: () -> Unit,
+    onOpenPin: (String) -> Unit,
+    onMovePin: (String, Int) -> Unit,
+    onSetIcon: (String, String) -> Unit,
+    onSetColor: (String, String) -> Unit,
+    onUnpin: (String) -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxSize()
+            .background(Slate.Background)
+    ) {
+        Column(Modifier.weight(1f)) {
+            TopBar(
+                onOpenSearch = onOpenSearch,
+                overflowOpen = overflowOpen,
+                onOverflow = onOverflow,
+                onSettings = onSettings,
+                onCheckUpdate = onCheckUpdate,
+                trailing = {},
+            )
+            Box(Modifier.fillMaxSize()) {
+                FloatingActionButton(
+                    onClick = onNewNote,
+                    containerColor = Slate.Accent,
+                    contentColor = Slate.Secondary,
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .navigationBarsPadding()
+                        .padding(end = 20.dp, bottom = 24.dp)
+                        .size(68.dp),
+                ) {
+                    Icon(Icons.Filled.Add, "New note", modifier = Modifier.size(32.dp))
+                }
+            }
+        }
+
+        Box(
+            Modifier
+                .width(1.dp)
+                .fillMaxSize()
+                .background(Slate.Divider)
+        )
+
+        PinnedPanel(
+            pins = pins,
+            onOpen = onOpenPin,
+            onMove = onMovePin,
+            onSetIcon = onSetIcon,
+            onSetColor = onSetColor,
+            onUnpin = onUnpin,
+            modifier = Modifier
+                .width(panelWidth.widthDp.dp)
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+        )
+    }
+}
+
+// ==================================================================
+// Editor
+// ==================================================================
+
+@Composable
+private fun EditorScreen(
     title: String,
     onTitleChange: (String) -> Unit,
     body: TextFieldValue,
     onBodyChange: (TextFieldValue) -> Unit,
     bodyFocus: FocusRequester,
-    mdMode: Boolean,
-    preview: Boolean,
-    overflow: Boolean,
+    readMode: Boolean,
+    onEnterEdit: () -> Unit,
+    onToggleLine: (Int) -> Unit,
+    showToolbar: Boolean,
+    onToggleToolbar: () -> Unit,
+    isPinned: Boolean,
+    canPin: Boolean,
+    onTogglePin: () -> Unit,
+    onOpenSearch: () -> Unit,
+    overflowOpen: Boolean,
     onOverflow: (Boolean) -> Unit,
-    onToggleMd: () -> Unit,
-    onTogglePreview: () -> Unit,
-    onOpenDrawer: () -> Unit,
-    onNewNote: () -> Unit,
-    onAbout: () -> Unit,
+    onSettings: () -> Unit,
     onCheckUpdate: () -> Unit,
+    onDone: () -> Unit,
+    onNewNote: () -> Unit,
 ) {
+    val transformation = remember { LiveMarkdownTransformation() }
+
     Column(
         Modifier
             .fillMaxSize()
             .background(Slate.Background)
-            .statusBarsPadding()
             .imePadding()
     ) {
-        // App header
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .background(Slate.Secondary)
-                .padding(start = 18.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Jot", color = Slate.Text, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = onNewNote, modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Filled.Add, "New note", tint = Slate.Accent, modifier = Modifier.size(22.dp))
-            }
-            Box {
-                IconButton(onClick = { onOverflow(true) }, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Filled.MoreVert, "More", tint = Slate.Muted, modifier = Modifier.size(21.dp))
+        TopBar(
+            onOpenSearch = onOpenSearch,
+            overflowOpen = overflowOpen,
+            onOverflow = onOverflow,
+            onSettings = onSettings,
+            onCheckUpdate = onCheckUpdate,
+            trailing = {
+                if (canPin) {
+                    IconButton(onClick = onTogglePin, modifier = Modifier.size(42.dp)) {
+                        Icon(
+                            if (isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                            if (isPinned) "Unpin" else "Pin to home",
+                            tint = if (isPinned) Slate.Accent else Slate.Muted,
+                            modifier = Modifier.size(21.dp),
+                        )
+                    }
                 }
-                DropdownMenu(expanded = overflow, onDismissRequest = { onOverflow(false) }) {
-                    DropdownMenuItem(
-                        text = { Text("Check for updates", fontSize = 14.sp) },
-                        onClick = { onOverflow(false); onCheckUpdate() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("About & settings", fontSize = 14.sp) },
-                        onClick = { onOverflow(false); onAbout() },
-                    )
-                }
-            }
-            IconButton(onClick = onOpenDrawer, modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Filled.Menu, "Notes", tint = Slate.Text, modifier = Modifier.size(22.dp))
-            }
-        }
+            },
+        )
 
-        // Title (optional, fill it whenever)
         BasicTextField(
             value = title,
             onValueChange = onTitleChange,
             singleLine = true,
-            textStyle = TextStyle(color = Slate.Text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold),
+            textStyle = TextStyle(
+                color = Slate.Text,
+                fontSize = 19.sp,
+                fontWeight = FontWeight.SemiBold,
+            ),
             cursorBrush = SolidColor(Slate.Accent),
             decorationBox = { inner ->
                 Box(Modifier.padding(horizontal = 18.dp, vertical = 12.dp)) {
                     if (title.isEmpty()) {
-                        Text("Title (optional)", color = Slate.Muted, fontSize = 18.sp)
+                        Text("Title (optional)", color = Slate.Muted, fontSize = 19.sp)
                     }
                     inner()
                 }
@@ -445,20 +606,25 @@ private fun Editor(
                 .background(Slate.Divider)
         )
 
-        // Body or preview
         Box(Modifier.weight(1f)) {
-            if (preview) {
-                MarkdownPreview(body.text, Modifier.fillMaxSize())
+            if (readMode) {
+                ReadView(
+                    text = body.text,
+                    onToggleLine = onToggleLine,
+                    onEditRequest = onEnterEdit,
+                    modifier = Modifier.fillMaxSize(),
+                )
             } else {
                 BasicTextField(
                     value = body,
                     onValueChange = onBodyChange,
-                    textStyle = TextStyle(color = Slate.Text, fontSize = 16.sp, lineHeight = 24.sp),
+                    visualTransformation = transformation,
+                    textStyle = TextStyle(color = Slate.Text, fontSize = 16.sp, lineHeight = 25.sp),
                     cursorBrush = SolidColor(Slate.Accent),
                     decorationBox = { inner ->
                         Box(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
                             if (body.text.isEmpty()) {
-                                Text("Start typing…", color = Slate.Muted, fontSize = 16.sp)
+                                Text("Start typing...", color = Slate.Muted, fontSize = 16.sp)
                             }
                             inner()
                         }
@@ -470,8 +636,7 @@ private fun Editor(
             }
         }
 
-        // Markdown bar
-        if (mdMode) {
+        AnimatedVisibility(visible = showToolbar && !readMode) {
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -480,68 +645,159 @@ private fun Editor(
                     .padding(horizontal = 6.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                MdButton(Icons.Filled.FormatBold, "Bold") { onBodyChange(wrapSelection(body, "**")) }
-                MdButton(Icons.Filled.FormatItalic, "Italic") { onBodyChange(wrapSelection(body, "*")) }
-                MdButton(Icons.Filled.Code, "Code") { onBodyChange(wrapSelection(body, "`")) }
-                MdButton(Icons.Filled.Title, "Heading") { onBodyChange(prefixLine(body, "## ")) }
-                MdButton(Icons.Filled.FormatListBulleted, "Bullet") { onBodyChange(prefixLine(body, "- ")) }
-                MdButton(Icons.Filled.Checklist, "Checkbox") { onBodyChange(prefixLine(body, "- [ ] ")) }
-                MdButton(Icons.Filled.FormatQuote, "Quote") { onBodyChange(prefixLine(body, "> ")) }
+                ToolButton(Icons.Filled.Checklist, "Checkbox") {
+                    onBodyChange(prefixLine(body, "- [ ] "))
+                }
+                ToolButton(Icons.Filled.FormatListBulleted, "Bullet") {
+                    onBodyChange(prefixLine(body, "- "))
+                }
+                ToolButton(Icons.Filled.FormatBold, "Bold") {
+                    onBodyChange(wrapSelection(body, "**"))
+                }
+                ToolButton(Icons.Filled.FormatItalic, "Italic") {
+                    onBodyChange(wrapSelection(body, "*"))
+                }
+                ToolButton(Icons.Filled.Title, "Heading") {
+                    onBodyChange(prefixLine(body, "## "))
+                }
+                ToolButton(Icons.Filled.FormatQuote, "Quote") {
+                    onBodyChange(prefixLine(body, "> "))
+                }
+                ToolButton(Icons.Filled.Code, "Code") {
+                    onBodyChange(wrapSelection(body, "`"))
+                }
             }
         }
 
-        // Footer
+        // ---------------- bottom action bar ----------------
         Row(
             Modifier
                 .fillMaxWidth()
                 .background(Slate.Secondary)
                 .navigationBarsPadding()
-                .padding(horizontal = 10.dp, vertical = 2.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onToggleMd) {
+            if (readMode) {
+                TextButton(onClick = onEnterEdit) {
+                    Text("Edit", color = Slate.Accent, fontSize = 14.sp)
+                }
+            } else {
+                TextButton(onClick = onToggleToolbar) {
                     Text(
-                        if (mdMode) "Markdown ON" else "Markdown",
-                        color = if (mdMode) Slate.Accent else Slate.Muted,
-                        fontSize = 13.sp,
+                        if (showToolbar) "Format" else "Format",
+                        color = if (showToolbar) Slate.Accent else Slate.Muted,
+                        fontSize = 14.sp,
                     )
                 }
-                if (mdMode) {
-                    IconButton(onClick = onTogglePreview, modifier = Modifier.size(34.dp)) {
-                        Icon(
-                            if (preview) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                            "Preview",
-                            tint = if (preview) Slate.Accent else Slate.Muted,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
-                }
             }
-            Text("v${BuildConfig.VERSION_NAME}", color = Slate.Muted, fontSize = 11.sp)
+
+            Spacer(Modifier.weight(1f))
+
+            Text(
+                "v${BuildConfig.VERSION_NAME}",
+                color = Slate.Muted,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(end = 12.dp),
+            )
+
+            ExtendedFloatingActionButton(
+                onClick = onDone,
+                containerColor = Slate.Accent,
+                contentColor = Slate.Secondary,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.height(50.dp),
+            ) {
+                Icon(Icons.Filled.Check, null, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Done", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            }
         }
     }
 }
 
 @Composable
-private fun MdButton(
+private fun ToolButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     onClick: () -> Unit,
 ) {
-    IconButton(onClick = onClick, modifier = Modifier.size(42.dp)) {
-        Icon(icon, label, tint = Slate.Text, modifier = Modifier.size(19.dp))
+    IconButton(onClick = onClick, modifier = Modifier.size(46.dp)) {
+        Icon(icon, label, tint = Slate.Text, modifier = Modifier.size(21.dp))
     }
 }
 
-// ------------------------------------------------------------------
+// ==================================================================
+// Shared top bar: controls on the LEFT, title after them
+// ==================================================================
+
+@Composable
+private fun TopBar(
+    onOpenSearch: () -> Unit,
+    overflowOpen: Boolean,
+    onOverflow: (Boolean) -> Unit,
+    onSettings: () -> Unit,
+    onCheckUpdate: () -> Unit,
+    trailing: @Composable () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(Slate.Secondary)
+            .statusBarsPadding()
+            .padding(start = 4.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onOpenSearch, modifier = Modifier.size(44.dp)) {
+            Icon(
+                Icons.Filled.Search, "Search and browse notes",
+                tint = Slate.Text,
+                modifier = Modifier.size(23.dp),
+            )
+        }
+
+        Box {
+            IconButton(onClick = { onOverflow(true) }, modifier = Modifier.size(44.dp)) {
+                Icon(
+                    Icons.Filled.MoreVert, "More",
+                    tint = Slate.Muted,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+            DropdownMenu(expanded = overflowOpen, onDismissRequest = { onOverflow(false) }) {
+                DropdownMenuItem(
+                    text = { Text("Settings", fontSize = 14.sp) },
+                    onClick = { onOverflow(false); onSettings() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Check for updates", fontSize = 14.sp) },
+                    onClick = { onOverflow(false); onCheckUpdate() },
+                )
+            }
+        }
+
+        Spacer(Modifier.width(6.dp))
+
+        Text(
+            "Jot",
+            color = Slate.Text,
+            fontSize = 27.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+
+        Spacer(Modifier.weight(1f))
+        trailing()
+    }
+}
+
+// ==================================================================
+// Dialog plumbing
+// ==================================================================
 
 private sealed interface DialogState {
     data class NewFolder(val parent: File) : DialogState
     data class Rename(val node: NoteNode) : DialogState
     data class Delete(val node: NoteNode) : DialogState
-    data object About : DialogState
 }
 
 @Composable
@@ -559,12 +815,12 @@ private fun TextPrompt(
         containerColor = Slate.Secondary,
         title = { Text(titleText, color = Slate.Text, fontSize = 17.sp) },
         text = {
-            OutlinedTextField(
+            androidx.compose.material3.OutlinedTextField(
                 value = value,
                 onValueChange = { value = it },
                 singleLine = true,
                 label = { Text(label, fontSize = 13.sp) },
-                colors = OutlinedTextFieldDefaults.colors(
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Slate.Accent,
                     unfocusedBorderColor = Slate.Divider,
                     focusedTextColor = Slate.Text,
@@ -578,55 +834,6 @@ private fun TextPrompt(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel", color = Slate.Muted) }
-        },
-    )
-}
-
-@Composable
-private fun AboutDialog(
-    onDismiss: () -> Unit,
-    onSaveToken: (String) -> Unit,
-    initialToken: String,
-) {
-    var token by remember { mutableStateOf(initialToken) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Slate.Secondary,
-        title = { Text("Jot v${BuildConfig.VERSION_NAME}", color = Slate.Text, fontSize = 18.sp) },
-        text = {
-            Column {
-                Text("Notes folder", color = Slate.Muted, fontSize = 13.sp)
-                Text(NoteStore.root.absolutePath, color = Slate.Text, fontSize = 13.sp)
-                Spacer(Modifier.height(14.dp))
-                Text(
-                    "Point Syncthing at that folder to sync with your PC.",
-                    color = Slate.Muted, fontSize = 13.sp,
-                )
-                Spacer(Modifier.height(14.dp))
-                Text("GitHub token (only needed for a private repo)", color = Slate.Muted, fontSize = 13.sp)
-                OutlinedTextField(
-                    value = token,
-                    onValueChange = { token = it },
-                    singleLine = true,
-                    placeholder = { Text("ghp_…", fontSize = 13.sp) },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Slate.Accent,
-                        unfocusedBorderColor = Slate.Divider,
-                        focusedTextColor = Slate.Text,
-                        unfocusedTextColor = Slate.Text,
-                        cursorColor = Slate.Accent,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onSaveToken(token); onDismiss() }) {
-                Text("Save", color = Slate.Accent)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Close", color = Slate.Muted) }
         },
     )
 }

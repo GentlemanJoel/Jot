@@ -20,16 +20,10 @@ data class UpdateInfo(
 
 object Updater {
 
-    private const val PREFS = "jot_prefs"
-    private const val KEY_TOKEN = "github_token"
+    /** Single source of truth lives in Prefs so Settings and the updater can't drift. */
+    fun savedToken(context: Context): String = Prefs.token(context)
 
-    fun savedToken(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_TOKEN, "") ?: ""
-
-    fun saveToken(context: Context, token: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString(KEY_TOKEN, token.trim()).apply()
-    }
+    fun saveToken(context: Context, token: String) = Prefs.setToken(context, token)
 
     /** Returns the latest release if it is newer than the installed build, else null. */
     suspend fun check(context: Context): Result<UpdateInfo?> = withContext(Dispatchers.IO) {
