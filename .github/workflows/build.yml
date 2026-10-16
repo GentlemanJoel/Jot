@@ -1,0 +1,82 @@
+name: Build Jot APK
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Check signing secrets
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::KEYSTORE_B64 secret is missing. Run the keystore step in SETUP.md first."
+            echo "::error::Building without it would produce a debug-signed APK that can never be updated in place."
+            exit 1
+          fi
+
+      - name: Decode keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/jot.jks"
+
+      - name: Read version
+        id: ver
+        run: |
+          V=$(grep -m1 'val jotVersionName' app/build.gradle.kts | cut -d'"' -f2)
+          echo "name=$V" >> "$GITHUB_OUTPUT"
+          echo "Building Jot v$V"
+
+      - name: Build release APK
+        env:
+          JOT_KEYSTORE: ${{ runner.temp }}/jot.jks
+          JOT_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          JOT_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          JOT_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: gradle --no-daemon assembleRelease
+
+      - name: Rename APK
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk \
+             "dist/Jot-v${{ steps.ver.outputs.name }}.apk"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.name }}
+          name: Jot v${{ steps.ver.outputs.name }}
+          files: dist/Jot-v${{ steps.ver.outputs.name }}.apk
+          make_latest: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+
+      - name: Upload artifact (backup copy)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jot-v${{ steps.ver.outputs.name }}
+          path: dist/*.apk
