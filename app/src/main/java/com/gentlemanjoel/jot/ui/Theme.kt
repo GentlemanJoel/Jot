@@ -18,6 +18,12 @@ object Slate {
     val Muted = Color(0xFF8FA3B8)
     val Divider = Color(0xFF3A4249)
     val Danger = Color(0xFFD9674A)
+
+    /** The star: warm gold used for pinned/favourited things and the wordmark. */
+    val Sun = Color(0xFFE8A33D)
+
+    /** The star's flare - a lighter gold for small highlights on dark surfaces. */
+    val SunLight = Color(0xFFF2C46B)
 }
 
 private val JotColors = darkColorScheme(

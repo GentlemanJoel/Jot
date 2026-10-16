@@ -21,8 +21,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -37,15 +40,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gentlemanjoel.jot.BuildConfig
+import com.gentlemanjoel.jot.FabSize
 import com.gentlemanjoel.jot.PanelWidth
 
 @Composable
 fun SettingsScreen(
     panelWidth: PanelWidth,
     onPanelWidth: (PanelWidth) -> Unit,
+    fabSize: FabSize,
+    onFabSize: (FabSize) -> Unit,
     token: String,
     onToken: (String) -> Unit,
     notesPath: String,
@@ -54,6 +61,7 @@ fun SettingsScreen(
 ) {
     var tokenField by remember { mutableStateOf(token) }
     var savedNote by remember { mutableStateOf(false) }
+    var widthMenu by remember { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -87,36 +95,117 @@ fun SettingsScreen(
                 .padding(horizontal = 18.dp, vertical = 16.dp)
         ) {
             SectionLabel("Pinned panel width")
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp, bottom = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                PanelWidth.entries.forEach { w ->
-                    val selected = w == panelWidth
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .height(46.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (selected) Slate.Accent.copy(alpha = 0.18f) else Slate.Secondary)
-                            .then(
-                                if (selected) Modifier.border(1.5.dp, Slate.Accent, RoundedCornerShape(12.dp))
-                                else Modifier
-                            )
-                            .clickable { onPanelWidth(w) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            w.label,
-                            color = if (selected) Slate.Accent else Slate.Muted,
-                            fontSize = 14.sp,
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            Text(
+                "Anything under ${PanelWidth.LABEL_FLOOR}dp drops the note names and shows just the icons.",
+                color = Slate.Muted,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 6.dp, bottom = 8.dp),
+            )
+
+            Box {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Slate.Secondary)
+                        .border(1.dp, Slate.Divider, RoundedCornerShape(12.dp))
+                        .clickable { widthMenu = true }
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(panelWidth.label, color = Slate.Text, fontSize = 14.sp)
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        "${panelWidth.widthDp}dp",
+                        color = Slate.Muted,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                    Icon(
+                        Icons.Filled.ArrowDropDown, "Change width",
+                        tint = Slate.Accent,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = widthMenu,
+                    onDismissRequest = { widthMenu = false },
+                ) {
+                    PanelWidth.entries.forEach { w ->
+                        val selected = w == panelWidth
+                        DropdownMenuItem(
+                            onClick = { onPanelWidth(w); widthMenu = false },
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        w.label,
+                                        color = if (selected) Slate.Accent else Slate.Text,
+                                        fontSize = 14.sp,
+                                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                    )
+                                    Spacer(Modifier.width(12.dp))
+                                    Text("${w.widthDp}dp", color = Slate.Muted, fontSize = 12.sp)
+                                }
+                            },
                         )
                     }
                 }
             }
+
+            Spacer(Modifier.height(22.dp))
+
+            SectionLabel("New note button size")
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp, bottom = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                FabSize.entries.forEach { s ->
+                    val selected = s == fabSize
+                    Column(
+                        Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    if (selected) Slate.Accent.copy(alpha = 0.18f) else Slate.Secondary
+                                )
+                                .then(
+                                    if (selected) Modifier.border(
+                                        1.5.dp, Slate.Accent, RoundedCornerShape(12.dp)
+                                    ) else Modifier
+                                )
+                                .clickable { onFabSize(s) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            // A dot scaled to the real button size, so the
+                            // relative difference is visible at a glance.
+                            Box(
+                                Modifier
+                                    .size((s.sizeDp * 0.36f).dp)
+                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                    .background(if (selected) Slate.Accent else Slate.Muted)
+                            )
+                        }
+                        Text(
+                            s.label,
+                            color = if (selected) Slate.Accent else Slate.Muted,
+                            fontSize = 11.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(top = 5.dp),
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(22.dp))
 
             SectionLabel("Notes folder")
             Text(

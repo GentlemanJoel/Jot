@@ -26,6 +26,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatListBulleted
@@ -75,6 +77,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.gentlemanjoel.jot.BuildConfig
 import com.gentlemanjoel.jot.Draft
+import com.gentlemanjoel.jot.FabSize
 import com.gentlemanjoel.jot.NoteNode
 import com.gentlemanjoel.jot.NoteStore
 import com.gentlemanjoel.jot.Pin
@@ -100,6 +103,8 @@ fun JotApp() {
     val expanded = remember { mutableStateListOf<String>() }
     var pins by remember { mutableStateOf(Prefs.pins(context)) }
     var panelWidth by remember { mutableStateOf(Prefs.panelWidth(context)) }
+    var fabSize by remember { mutableStateOf(Prefs.fabSize(context)) }
+    var searching by remember { mutableStateOf(false) }
 
     var currentFile by remember { mutableStateOf<File?>(null) }
     var currentDir by remember { mutableStateOf(NoteStore.ensureRoot()) }
@@ -210,10 +215,11 @@ fun JotApp() {
         }
     }
 
-    // Back button: close the drawer, else fall back toward Home, else leave the app.
-    BackHandler(enabled = drawerState.isOpen || screen != Screen.HOME) {
+    // Back button: leave search, close the drawer, else fall back toward Home.
+    BackHandler(enabled = drawerState.isOpen || searching || screen != Screen.HOME) {
         when {
             drawerState.isOpen -> scope.launch { drawerState.close() }
+            searching -> searching = false
             screen == Screen.EDITOR -> goHome()
             screen == Screen.SETTINGS -> screen = Screen.HOME
             else -> Unit
@@ -222,6 +228,8 @@ fun JotApp() {
 
     ModalNavigationDrawer(
         drawerState = drawerState,
+        // Home already shows the tree, so the drawer is an editor-only shortcut.
+        gesturesEnabled = screen == Screen.EDITOR,
         drawerContent = {
             ModalDrawerSheet(
                 drawerContainerColor = Slate.Secondary,
@@ -230,7 +238,7 @@ fun JotApp() {
                 DrawerTree(
                     tree = tree,
                     openFile = currentFile,
-                    expanded = expanded.toMutableSet(),
+                    expanded = expanded.toSet(),
                     onToggleFolder = { path ->
                         if (expanded.contains(path)) expanded.remove(path) else expanded.add(path)
                     },
@@ -247,12 +255,25 @@ fun JotApp() {
             Screen.HOME -> HomeScreen(
                 pins = pins,
                 panelWidth = panelWidth,
-                onOpenSearch = { scope.launch { drawerState.open() } },
+                fabSize = fabSize,
+                tree = tree,
+                openFile = currentFile,
+                expanded = expanded.toSet(),
+                searching = searching,
+                onToggleFolder = { path ->
+                    if (expanded.contains(path)) expanded.remove(path) else expanded.add(path)
+                },
+                onOpenNote = { openNote(it) },
+                onNewFolderIn = { dialog = DialogState.NewFolder(it) },
+                onRename = { dialog = DialogState.Rename(it) },
+                onDelete = { dialog = DialogState.Delete(it) },
+                onOpenSearch = { searching = true },
+                onCloseSearch = { searching = false },
                 onOverflow = { overflow = it },
                 overflowOpen = overflow,
                 onSettings = { screen = Screen.SETTINGS },
                 onCheckUpdate = { checkForUpdate() },
-                onNewNote = { newNote() },
+                onNewNote = { searching = false; newNote() },
                 onOpenPin = { path -> openNote(File(path)) },
                 onMovePin = { p, d -> Prefs.movePin(context, p, d); pins = Prefs.pins(context) },
                 onSetIcon = { p, i -> Prefs.updatePin(context, p, icon = i); pins = Prefs.pins(context) },
@@ -265,6 +286,11 @@ fun JotApp() {
                 onPanelWidth = {
                     Prefs.setPanelWidth(context, it)
                     panelWidth = it
+                },
+                fabSize = fabSize,
+                onFabSize = {
+                    Prefs.setFabSize(context, it)
+                    fabSize = it
                 },
                 token = Prefs.token(context),
                 onToken = { Prefs.setToken(context, it) },
@@ -305,7 +331,8 @@ fun JotApp() {
                         pins = Prefs.pins(context)
                     }
                 },
-                onOpenSearch = { scope.launch { drawerState.open() } },
+                onOpenSearch = { persist(); searching = true; screen = Screen.HOME },
+                onBrowse = { scope.launch { drawerState.open() } },
                 overflowOpen = overflow,
                 onOverflow = { overflow = it },
                 onSettings = { persist(); screen = Screen.SETTINGS },
@@ -458,7 +485,18 @@ fun JotApp() {
 private fun HomeScreen(
     pins: List<Pin>,
     panelWidth: PanelWidth,
+    fabSize: FabSize,
+    tree: List<NoteNode>,
+    openFile: File?,
+    expanded: Set<String>,
+    searching: Boolean,
+    onToggleFolder: (String) -> Unit,
+    onOpenNote: (File) -> Unit,
+    onNewFolderIn: (File) -> Unit,
+    onRename: (NoteNode) -> Unit,
+    onDelete: (NoteNode) -> Unit,
     onOpenSearch: () -> Unit,
+    onCloseSearch: () -> Unit,
     onOverflow: (Boolean) -> Unit,
     overflowOpen: Boolean,
     onSettings: () -> Unit,
@@ -470,56 +508,101 @@ private fun HomeScreen(
     onSetColor: (String, String) -> Unit,
     onUnpin: (String) -> Unit,
 ) {
-    Row(
+    // The button floats over everything, so both scrolling columns reserve
+    // enough room underneath that nothing can end up hidden behind it.
+    val fabClearance = (fabSize.sizeDp + 40).dp
+
+    Box(
         Modifier
             .fillMaxSize()
             .background(Slate.Background)
     ) {
-        Column(Modifier.weight(1f)) {
-            TopBar(
-                onOpenSearch = onOpenSearch,
-                overflowOpen = overflowOpen,
-                onOverflow = onOverflow,
-                onSettings = onSettings,
-                onCheckUpdate = onCheckUpdate,
-                trailing = {},
-            )
-            Box(Modifier.fillMaxSize()) {
-                FloatingActionButton(
-                    onClick = onNewNote,
-                    containerColor = Slate.Accent,
-                    contentColor = Slate.Secondary,
-                    shape = androidx.compose.foundation.shape.CircleShape,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .navigationBarsPadding()
-                        .padding(end = 20.dp, bottom = 24.dp)
-                        .size(68.dp),
-                ) {
-                    Icon(Icons.Filled.Add, "New note", modifier = Modifier.size(32.dp))
+        Row(Modifier.fillMaxSize()) {
+            Column(Modifier.weight(1f)) {
+                if (searching) {
+                    SearchPane(
+                        tree = tree,
+                        onOpenNote = onOpenNote,
+                        onClose = onCloseSearch,
+                        bottomReserve = fabClearance,
+                        modifier = Modifier
+                            .statusBarsPadding()
+                            .navigationBarsPadding(),
+                    )
+                } else {
+                    TopBar(
+                        onOpenSearch = onOpenSearch,
+                        overflowOpen = overflowOpen,
+                        onOverflow = onOverflow,
+                        onSettings = onSettings,
+                        onCheckUpdate = onCheckUpdate,
+                        trailing = {
+                            IconButton(
+                                onClick = { onNewFolderIn(NoteStore.ensureRoot()) },
+                                modifier = Modifier.size(42.dp),
+                            ) {
+                                Icon(
+                                    Icons.Filled.CreateNewFolder, "New folder",
+                                    tint = Slate.Muted,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        },
+                    )
+                    NoteTreeList(
+                        tree = tree,
+                        openFile = openFile,
+                        expanded = expanded,
+                        rowBackground = Slate.Background,
+                        onToggleFolder = onToggleFolder,
+                        onOpenNote = onOpenNote,
+                        onNewNoteIn = { onNewNote() },
+                        onNewFolderIn = onNewFolderIn,
+                        onRename = onRename,
+                        onDelete = onDelete,
+                        bottomReserve = fabClearance,
+                        modifier = Modifier.navigationBarsPadding(),
+                    )
                 }
             }
+
+            Box(
+                Modifier
+                    .width(1.dp)
+                    .fillMaxSize()
+                    .background(Slate.Divider)
+            )
+
+            PinnedPanel(
+                pins = pins,
+                width = panelWidth,
+                bottomReserve = fabClearance,
+                onOpen = onOpenPin,
+                onMove = onMovePin,
+                onSetIcon = onSetIcon,
+                onSetColor = onSetColor,
+                onUnpin = onUnpin,
+                modifier = Modifier
+                    .width(panelWidth.widthDp.dp)
+                    .statusBarsPadding()
+                    .navigationBarsPadding(),
+            )
         }
 
-        Box(
-            Modifier
-                .width(1.dp)
-                .fillMaxSize()
-                .background(Slate.Divider)
-        )
-
-        PinnedPanel(
-            pins = pins,
-            onOpen = onOpenPin,
-            onMove = onMovePin,
-            onSetIcon = onSetIcon,
-            onSetColor = onSetColor,
-            onUnpin = onUnpin,
+        // Fixed to the bottom-right corner, sitting above the pinned panel.
+        FloatingActionButton(
+            onClick = onNewNote,
+            containerColor = Slate.Accent,
+            contentColor = Slate.Secondary,
+            shape = androidx.compose.foundation.shape.CircleShape,
             modifier = Modifier
-                .width(panelWidth.widthDp.dp)
-                .statusBarsPadding()
-                .navigationBarsPadding(),
-        )
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(end = 14.dp, bottom = 18.dp)
+                .size(fabSize.sizeDp.dp),
+        ) {
+            Icon(Icons.Filled.Add, "New note", modifier = Modifier.size(fabSize.iconDp.dp))
+        }
     }
 }
 
@@ -543,6 +626,7 @@ private fun EditorScreen(
     canPin: Boolean,
     onTogglePin: () -> Unit,
     onOpenSearch: () -> Unit,
+    onBrowse: () -> Unit,
     overflowOpen: Boolean,
     onOverflow: (Boolean) -> Unit,
     onSettings: () -> Unit,
@@ -560,6 +644,7 @@ private fun EditorScreen(
     ) {
         TopBar(
             onOpenSearch = onOpenSearch,
+            onBrowse = onBrowse,
             overflowOpen = overflowOpen,
             onOverflow = onOverflow,
             onSettings = onSettings,
@@ -570,7 +655,7 @@ private fun EditorScreen(
                         Icon(
                             if (isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
                             if (isPinned) "Unpin" else "Pin to home",
-                            tint = if (isPinned) Slate.Accent else Slate.Muted,
+                            tint = if (isPinned) Slate.Sun else Slate.Muted,
                             modifier = Modifier.size(21.dp),
                         )
                     }
@@ -739,6 +824,7 @@ private fun TopBar(
     onSettings: () -> Unit,
     onCheckUpdate: () -> Unit,
     trailing: @Composable () -> Unit,
+    onBrowse: (() -> Unit)? = null,
 ) {
     Row(
         Modifier
@@ -750,10 +836,20 @@ private fun TopBar(
     ) {
         IconButton(onClick = onOpenSearch, modifier = Modifier.size(44.dp)) {
             Icon(
-                Icons.Filled.Search, "Search and browse notes",
+                Icons.Filled.Search, "Search notes",
                 tint = Slate.Text,
                 modifier = Modifier.size(23.dp),
             )
+        }
+
+        if (onBrowse != null) {
+            IconButton(onClick = onBrowse, modifier = Modifier.size(44.dp)) {
+                Icon(
+                    Icons.Filled.Folder, "Browse all notes",
+                    tint = Slate.Sun,
+                    modifier = Modifier.size(21.dp),
+                )
+            }
         }
 
         Box {
@@ -778,12 +874,21 @@ private fun TopBar(
 
         Spacer(Modifier.width(6.dp))
 
-        Text(
-            "Jot",
-            color = Slate.Text,
-            fontSize = 27.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
+        // Wordmark with its little sun - the star in Sagan Slate.
+        Row(verticalAlignment = Alignment.Top) {
+            Text(
+                "Jot",
+                color = Slate.Text,
+                fontSize = 27.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Box(
+                Modifier
+                    .padding(start = 3.dp, top = 4.dp)
+                    .size(8.dp)
+                    .background(Slate.Sun, androidx.compose.foundation.shape.CircleShape)
+            )
+        }
 
         Spacer(Modifier.weight(1f))
         trailing()

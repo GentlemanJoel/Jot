@@ -14,39 +14,161 @@ data class Pin(
         get() = path.substringAfterLast('/').removeSuffix(".md")
 }
 
+/**
+ * Width of the pinned panel. The smallest option is a quarter of what used to
+ * be the narrowest setting, which only fits the icon - so anything under
+ * [LABEL_FLOOR] drops the note name and shows the icon alone.
+ */
 enum class PanelWidth(val label: String, val widthDp: Int) {
-    NARROW("Narrow", 190),
-    MEDIUM("Medium", 250),
-    WIDE("Wide", 310),
+    ICON_TINY("Tiny - icon only", 48),
+    ICON_SMALL("Small - icon only", 58),
+    ICON_MEDIUM("Medium - icon only", 70),
+    ICON_LARGE("Large - icon only", 86),
+    ICON_HUGE("Huge - icon only", 104),
+    LABEL_SLIM("Slim - with names", 140),
+    LABEL_NARROW("Narrow - with names", 170),
+    LABEL_MEDIUM("Medium - with names", 210),
+    LABEL_WIDE("Wide - with names", 260),
+    LABEL_XWIDE("Extra wide - with names", 310);
+
+    /** Too narrow for a readable name, so the row shows just the icon. */
+    val iconsOnly: Boolean get() = widthDp < LABEL_FLOOR
+
+    companion object {
+        const val LABEL_FLOOR = 130
+        val DEFAULT = LABEL_MEDIUM
+    }
 }
+
+/** Size of the new-note button that floats over the bottom-right corner. */
+enum class FabSize(val label: String, val sizeDp: Int, val iconDp: Int) {
+    SMALL("Small", 44, 21),
+    MEDIUM("Medium", 56, 26),
+    LARGE("Large", 68, 32),
+    XLARGE("Extra large", 82, 39),
+    HUGE("Huge", 96, 46);
+
+    companion object {
+        val DEFAULT = LARGE
+    }
+}
+
+/** A labelled set of icon keys, so the picker can be browsed by category. */
+data class IconGroup(val label: String, val keys: List<String>)
 
 object Prefs {
 
     private const val FILE = "jot_prefs"
     private const val KEY_PINS = "pins_json"
     private const val KEY_PANEL = "panel_width"
+    private const val KEY_FAB = "fab_size"
     private const val KEY_TOKEN = "github_token"
 
-    /** Icon keys offered in the picker. Rendered by IconFor() in the UI layer. */
-    val ICON_KEYS = listOf(
-        "note", "check", "cart", "star", "flag", "bolt",
-        "heart", "home", "work", "idea", "money", "calendar",
+    /**
+     * Icons offered in the picker, grouped by what a note is likely to be about.
+     * Every key is resolved to a vector by iconFor() in the UI layer.
+     */
+    val ICON_GROUPS = listOf(
+        IconGroup(
+            "General", listOf(
+                "note", "check", "star", "flag", "bolt", "heart",
+                "pin", "bookmark", "tag", "fire", "clock", "alarm",
+            )
+        ),
+        IconGroup(
+            "Productivity", listOf(
+                "task", "list", "idea", "target", "trending", "timer",
+                "calendar", "event", "inbox", "send", "priority", "edit",
+            )
+        ),
+        IconGroup(
+            "Office", listOf(
+                "work", "folder", "archive", "print", "mail", "phone",
+                "badge", "chart", "table", "receipt", "assignment", "briefcase",
+            )
+        ),
+        IconGroup(
+            "Money", listOf(
+                "money", "wallet", "card", "bank", "savings",
+                "cart", "shop", "gift", "percent",
+            )
+        ),
+        IconGroup(
+            "Home", listOf(
+                "home", "bed", "chair", "cleaning", "laundry", "tools",
+                "build", "yard", "pets", "plant", "key",
+            )
+        ),
+        IconGroup(
+            "Cooking", listOf(
+                "restaurant", "cafe", "pizza", "cake", "icecream", "wine",
+                "beer", "egg", "bakery", "grocery", "kitchen", "recipe",
+            )
+        ),
+        IconGroup(
+            "Sports", listOf(
+                "run", "bike", "gym", "soccer", "basketball", "football",
+                "baseball", "tennis", "golf", "hike", "swim", "ski",
+            )
+        ),
+        IconGroup(
+            "Entertainment", listOf(
+                "movie", "tv", "music", "headphones", "game", "camera",
+                "photo", "mic", "book", "palette", "theater", "radio",
+            )
+        ),
+        IconGroup(
+            "Travel", listOf(
+                "car", "flight", "train", "map", "place",
+                "beach", "luggage", "hotel", "fuel", "explore",
+            )
+        ),
+        IconGroup(
+            "Health", listOf(
+                "health", "spa", "water", "sleep", "medical", "pill",
+            )
+        ),
+        IconGroup(
+            "Tech", listOf(
+                "code", "laptop", "mobile", "cloud", "wifi",
+                "bug", "terminal", "database",
+            )
+        ),
     )
 
-    /** Color keys offered in the picker. Resolved by ColorFor() in the UI layer. */
-    val COLOR_KEYS = listOf("blue", "green", "amber", "red", "purple", "teal", "slate")
+    /** Flat list of every icon key, in group order. */
+    val ICON_KEYS: List<String> = ICON_GROUPS.flatMap { it.keys }
+
+    /** Color keys offered in the picker. Resolved by colorFor() in the UI layer. */
+    val COLOR_KEYS = listOf(
+        "blue", "sky", "indigo", "violet", "orchid",
+        "pink", "rose", "red", "orange", "sun",
+        "amber", "gold", "lime", "green", "emerald",
+        "teal", "cyan", "steel", "sand", "slate",
+    )
 
     private fun prefs(c: Context) = c.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
     // ---------------- panel width ----------------
 
     fun panelWidth(c: Context): PanelWidth {
-        val name = prefs(c).getString(KEY_PANEL, PanelWidth.MEDIUM.name)
-        return runCatching { PanelWidth.valueOf(name!!) }.getOrDefault(PanelWidth.MEDIUM)
+        val name = prefs(c).getString(KEY_PANEL, PanelWidth.DEFAULT.name)
+        return runCatching { PanelWidth.valueOf(name!!) }.getOrDefault(PanelWidth.DEFAULT)
     }
 
     fun setPanelWidth(c: Context, w: PanelWidth) {
         prefs(c).edit().putString(KEY_PANEL, w.name).apply()
+    }
+
+    // ---------------- new-note button size ----------------
+
+    fun fabSize(c: Context): FabSize {
+        val name = prefs(c).getString(KEY_FAB, FabSize.DEFAULT.name)
+        return runCatching { FabSize.valueOf(name!!) }.getOrDefault(FabSize.DEFAULT)
+    }
+
+    fun setFabSize(c: Context, s: FabSize) {
+        prefs(c).edit().putString(KEY_FAB, s.name).apply()
     }
 
     // ---------------- github token ----------------
