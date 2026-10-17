@@ -33,7 +33,7 @@
         android:strokeLineCap="round"
         android:strokeColor="#338FA3B8" />
 
-    <!-- The J stroke -->
+    <!-- The J stroke: a sunset sweeping blue -> purple -> orange -->
     <path
         android:pathData="M70,28 L70,62 C70,74 60,81 49,77 C43.5,75 40,70.5 39.5,65.5"
         android:strokeWidth="11"
@@ -46,9 +46,9 @@
                 android:endX="72"
                 android:endY="80"
                 android:type="linear">
-                <item android:offset="0.0" android:color="#FF00E5FF" />
-                <item android:offset="0.55" android:color="#FF4A90D9" />
-                <item android:offset="1.0" android:color="#FFFF2D95" />
+                <item android:offset="0.0" android:color="#FF5B7FE0" />
+                <item android:offset="0.5" android:color="#FFA06CD9" />
+                <item android:offset="1.0" android:color="#FFF2954A" />
             </gradient>
         </aapt:attr>
     </path>
@@ -88,8 +88,8 @@
         </aapt:attr>
     </path>
 
-    <!-- Cursor dot -->
+    <!-- Cursor dot, picking up the gradient's blue end -->
     <path
         android:pathData="M64,16 h12 a3,3 0 0 1 3,3 v0 a3,3 0 0 1 -3,3 h-12 a3,3 0 0 1 -3,-3 v0 a3,3 0 0 1 3,-3 z"
-        android:fillColor="#FF00E5FF" />
+        android:fillColor="#FF7B9BEA" />
 </vector>

@@ -3,6 +3,7 @@ package com.gentlemanjoel.jot.ui
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -24,6 +25,16 @@ object Slate {
 
     /** The star's flare - a lighter gold for small highlights on dark surfaces. */
     val SunLight = Color(0xFFF2C46B)
+
+    // ---- sunset gradient: the wordmark and logo share these three stops ----
+    val SunsetBlue = Color(0xFF5B7FE0)
+    val SunsetPurple = Color(0xFFA06CD9)
+    val SunsetOrange = Color(0xFFF2954A)
+
+    /** The wordmark/logo gradient - a sunset sweeping blue to purple to orange. */
+    val SunsetBrush = Brush.linearGradient(
+        colors = listOf(SunsetBlue, SunsetPurple, SunsetOrange),
+    )
 }
 
 private val JotColors = darkColorScheme(

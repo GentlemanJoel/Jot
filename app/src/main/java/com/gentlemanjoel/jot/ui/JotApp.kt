@@ -874,19 +874,22 @@ private fun TopBar(
 
         Spacer(Modifier.width(6.dp))
 
-        // Wordmark with its little sun - the star in Sagan Slate.
+        // Wordmark: a sunset gradient sweeping blue -> purple -> orange,
+        // with its little sun glowing at the end of the sweep.
         Row(verticalAlignment = Alignment.Top) {
             Text(
                 "Jot",
-                color = Slate.Text,
-                fontSize = 27.sp,
-                fontWeight = FontWeight.SemiBold,
+                style = TextStyle(
+                    brush = Slate.SunsetBrush,
+                    fontSize = 27.sp,
+                    fontWeight = FontWeight.SemiBold,
+                ),
             )
             Box(
                 Modifier
                     .padding(start = 3.dp, top = 4.dp)
                     .size(8.dp)
-                    .background(Slate.Sun, androidx.compose.foundation.shape.CircleShape)
+                    .background(Slate.SunsetOrange, androidx.compose.foundation.shape.CircleShape)
             )
         }
 
