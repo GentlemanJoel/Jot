@@ -27,7 +27,6 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.CreateNewFolder
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatListBulleted
@@ -36,6 +35,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Title
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
@@ -676,7 +676,7 @@ private fun EditorScreen(
             decorationBox = { inner ->
                 Box(Modifier.padding(horizontal = 18.dp, vertical = 12.dp)) {
                     if (title.isEmpty()) {
-                        Text("Title (optional)", color = Slate.Muted, fontSize = 19.sp)
+                        Text("Title", color = Slate.Placeholder, fontSize = 19.sp)
                     }
                     inner()
                 }
@@ -709,7 +709,7 @@ private fun EditorScreen(
                     decorationBox = { inner ->
                         Box(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
                             if (body.text.isEmpty()) {
-                                Text("Start typing...", color = Slate.Muted, fontSize = 16.sp)
+                                Text("Start typing...", color = Slate.Placeholder, fontSize = 16.sp)
                             }
                             inner()
                         }
@@ -845,8 +845,8 @@ private fun TopBar(
         if (onBrowse != null) {
             IconButton(onClick = onBrowse, modifier = Modifier.size(44.dp)) {
                 Icon(
-                    Icons.Filled.Folder, "Browse all notes",
-                    tint = Slate.Sun,
+                    Icons.Outlined.FolderOpen, "Browse all notes",
+                    tint = Slate.Muted,
                     modifier = Modifier.size(21.dp),
                 )
             }

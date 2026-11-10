@@ -20,6 +20,9 @@ object Slate {
     val Divider = Color(0xFF3A4249)
     val Danger = Color(0xFFD9674A)
 
+    /** Hint text inside empty fields - deliberately dimmer than Muted. */
+    val Placeholder = Color(0xFF5E6B77)
+
     /** The star: warm gold used for pinned/favourited things and the wordmark. */
     val Sun = Color(0xFFE8A33D)
 
