@@ -1,48 +1,48 @@
 # Jot — Handoff
 
-**Released: 0.5.6 · This package (Session 1) becomes 0.5.7** — RepoMate bumps
+**Released: 0.5.7 · This package (Session 2) becomes 0.5.8** — RepoMate bumps
 the version on push, so `build.gradle.kts` is deliberately not in the zip.
 
 ---
 
-## What changed in this version — Session 1 (fix pass)
+## What changed in this version — Session 2 (data safety)
 
-| # | Change | Files |
-|---|---|---|
-| 17 | **Keyboard now raised explicitly** when a note opens, a new note starts, or Edit is tapped. Focusing the field alone did not reliably raise it. The helper `raiseKeyboard()` asks for focus, then asks for the keyboard, and retries twice. | `JotApp.kt` |
-| 11 | **Pin panel header is a fixed 56dp**, equal to the menu bar's content row, at every width. The divider no longer rises when the panel narrows. | `PinnedPanel.kt` |
-| 1 | **Pencil/edit icon removed from the pin panel.** The header is only the pin icon. Press and hold a pin for its menu: Change icon, Change color, Move up, Move down, Unpin. The old edit mode and its dialog are gone. | `PinnedPanel.kt` |
-| 12 | **Updates section removed from Settings.** A small "Check for updates" button now sits beside the version number at the bottom. | `SettingsScreen.kt` |
-| 18 | **Slide-out note panel has a 1.5dp border** on its right edge. | `JotApp.kt` |
-| 19 | **Slide-out note panel stays scrollable with the keyboard open** (`imePadding`). | `JotApp.kt` |
-| 21 | **Action bar is shorter**: vertical padding 8dp to 4dp, checkmark 50dp to 44dp, `+` 38dp to 40dp. Bar is about 14dp shorter, tap targets stay at 40dp or more. | `JotApp.kt` |
+### Nothing is hard-deleted any more
 
-### Not done in Session 1, on purpose
-- The setting to turn auto-keyboard on or off is **Session 4**.
-- Nothing was compiled here (no Android SDK in the sandbox). Brace balance and
-  imports were checked statically. If the build fails, the error log names the
-  file and line.
+| Change | Detail |
+|---|---|
+| **Trash** | Deleting moves the file to `Jot/.trash` instead of unlinking it. Reachable from Settings → TRASH. Restore puts a note back where it came from; if something now holds that name, the restored copy gets a numbered suffix rather than overwriting. Purged automatically after `Prefs.TRASH_KEEP_DAYS` (30) on launch. |
+| **Lock** | Long-press a note → *Lock (prevent delete)*, or the editor's `...` menu. A locked note shows a padlock in the tree and cannot be deleted in-app; a folder holding one cannot be deleted either. App state only, so deleting on the PC still works. |
+| **Delete guards** | The folder delete dialog now says how many notes go with it, blocks outright if anything inside is locked, and warns in red if it is your designated new-note folder. |
+| **Mass delete** | Long-press → *Select* turns the tree into tick boxes and the menu bar into a selection bar (count, move, delete, cancel). Locked items in a selection are reported and skipped rather than silently deleted. |
+| **Move to...** | On notes and folders, from the long-press menu, the editor menu, or the selection bar. A folder cannot be moved into itself, and children of a selected folder are dropped from the batch so nothing acts on a path that already moved. |
+| **Delete from the editor** | New `...` menu beside the pin icon: Move to..., Lock/Unlock, Delete note. |
+| **Default folder for new notes** | Settings → NEW NOTES. Deleting that folder warns first, and clears the setting rather than leaving it dangling. |
 
-### Verify on the phone
-1. Open an existing note from Home: keyboard comes up, caret one blank line down.
-2. Open one from the pin panel and from the slide-out panel: same.
-3. Narrow the pin panel in Settings: divider still meets the bottom of the menu bar.
-4. Press and hold a pin: menu appears; each entry works.
-5. In a note, open the slide-out panel, raise the keyboard, scroll to the bottom of the list.
-6. Settings bottom: version with a small update button beside it; no Updates section.
+Pins, locks, and the default-folder setting now follow a note through renames
+and moves, including notes nested inside a moved folder (`Prefs.repath`), and
+are cleared when something is binned (`Prefs.forgetPath`). `Prefs.prune` also
+drops locks whose file vanished (deleted on the PC, say).
 
----
+### Carried in from your test notes
 
-## Previously shipped (0.5.3 to 0.5.6)
+| Item | Detail |
+|---|---|
+| Caret auto-scroll | Opening a long note now scrolls down to the caret. The caret is placed **after** the field has focus; setting it at the same time as the text is why it stayed off-screen. |
+| Pin panel capped | Widest option is now 170dp. The three wider ones are gone and the default moved to Narrow (170dp). A saved value pointing at a removed option falls back to the default. |
+| Format icon | The word "Format" is now the `TextFormat` icon (the "A" with a bar, as in Google Keep), blue while the format bar is open. |
 
-- Solid black status bar; "Title" placeholder; dimmer placeholders (`Slate.Placeholder` `#5E6B77`).
-- Collapsible Settings sections, all collapsed by default.
-- Opening an existing note: edit mode, caret a blank line below the text. The
-  padding is **display-only** (`padFor` / `bodyForSave`), so viewing a note
-  never rewrites it.
-- Action bar: Format, Read, version, small `+` (saves and starts a new note), checkmark.
-- Setting "Reopening the app": new note after N minutes away (off by default).
-- Muted outline folder icon in the editor menu bar.
+### Refactor worth knowing about
+
+`DrawerTree.kt` now exposes a **`TreeActions`** holder instead of passing ten
+callbacks positionally down a recursive tree. `JotApp` builds one and hands it
+to both the home tree and the slide-out tree, so the two can no longer drift
+apart. `TreeSelection` carries the ticked paths; null means normal browsing.
+
+### Not compiled here
+There is no Android SDK in the sandbox. Checked statically: brace balance on
+every file, every `Icons.*` reference against the real Material set, every
+composable's call site against its declaration, and import completeness.
 
 ---
 
@@ -55,13 +55,14 @@ parallel caused the conflict-marker build failures of November 2026.
 | Session | Model | Items | Status |
 |---|---|---|---|
 | S1 Fix pass | Sonnet | keyboard bug, pin header alignment, pin long-press menu, update button, drawer border, drawer IME, action bar height | **Delivered (this package)** |
-| S2 Data safety | **Opus** | Trash bin (`.trash`, ~30-day purge), lock a note from deletion, **Move to...** menu, mass delete (multi-select), delete from inside a note, folder-delete guards, designated folder for new notes | Next |
-| S3 Menu bar and editor | Sonnet | Fixed menu bar layout, drop Read button (auto read view when the keyboard closes, behind a setting), list auto-continue on open, undo/redo, pin panel beside a new note | Queued |
-| S4 Settings and launch | Sonnet | Where the app lands on open (new note / Home / a saved note), auto-keyboard toggle, merge reopen settings into one section, pin-panel-on-new-note toggle (default on) | Queued |
-| S5 Customization | Sonnet | Folder icons and colors with "apply to subfolders", larger icon library with tag search | Queued |
+| S2 Data safety | **Opus** | Trash, locks, Move to..., mass delete, delete from the editor, folder guards, default new-note folder, caret auto-scroll, 170dp cap, format icon | **Delivered (this package)** |
+| S3 Menu bar and editor | Sonnet | Fixed menu bar layout, drop Read button (auto read view when the keyboard closes, behind a setting), list auto-continue on open, undo/redo, pin panel beside a new note | Next |
+| S4 Settings and launch | Sonnet | Where the app lands on open, auto-keyboard toggle, **pin panel designer** (width slider with detents, icons/text/both, label beside or below, live preview, Apply), **new-note button live preview**, **tap the pin panel header icon to jump to its settings** | Queued |
+| S5 Customization | Sonnet | Folder icons and colors with "apply to subfolders", larger icon library with tag search, **one combined "Style" dialog replacing separate icon and color pickers** (shared by pins and folders) | Queued |
 | S6 Images | **Opus** | Attach/paste images (rated **High**; needs go-ahead; after S2) | Queued |
 | S7 Gestures | **Opus** | Pin panel swipe: collapse, fullscreen, back to default | Queued |
-| S8 Restyle | **Opus** | Radix-inspired styling, last | Needs spec |
+| S8a Theme refactor | **Opus** | Replace the fixed `Slate` object with role colors (note panel, pin panel, editor, menu bar). Invisible change; verify nothing moved. | Queued |
+| S8b Restyle and themes | **Opus** | Radix-inspired styling plus selectable color themes, including a lighter one that distinguishes each section | Needs spec |
 
 ### Design decisions already made (user approved defaults pending)
 - **Menu bar:** settings, folder, search on the left; logo centered; one contextual slot on the right (new folder on Home, note menu in the editor). On Home the folder icon collapses/expands all folders.

@@ -4,9 +4,11 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,6 +23,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -30,9 +33,15 @@ import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.FormatBold
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.DriveFileMove
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.FormatQuote
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.TextFormat
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
@@ -65,6 +74,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
@@ -90,13 +100,14 @@ import com.gentlemanjoel.jot.NoteStore
 import com.gentlemanjoel.jot.Pin
 import com.gentlemanjoel.jot.PanelWidth
 import com.gentlemanjoel.jot.Prefs
+import com.gentlemanjoel.jot.TrashItem
 import com.gentlemanjoel.jot.UpdateInfo
 import com.gentlemanjoel.jot.Updater
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
 
-private enum class Screen { HOME, EDITOR, SETTINGS }
+private enum class Screen { HOME, EDITOR, SETTINGS, TRASH }
 
 /**
  * Opening a note drops the caret a blank line below whatever is already
@@ -105,6 +116,18 @@ private enum class Screen { HOME, EDITOR, SETTINGS }
  * merely glancing at a note would rewrite it and Syncthing would carry that
  * pointless edit to the PC.
  */
+/**
+ * Drops any node that already sits inside another node in the same list.
+ * Moving or binning a folder takes its children with it, so acting on the
+ * child afterwards would be operating on a path that no longer exists.
+ */
+private fun topLevelOf(nodes: List<NoteNode>): List<NoteNode> {
+    val folderPaths = nodes.filter { it.isFolder }.map { it.file.absolutePath }
+    return nodes.filterNot { n ->
+        folderPaths.any { p -> n.file.absolutePath != p && n.file.absolutePath.startsWith("$p/") }
+    }
+}
+
 private fun padFor(text: String): String {
     val base = text.trimEnd('\n')
     return if (base.isEmpty()) "" else base + "\n\n"
@@ -123,7 +146,7 @@ fun JotApp() {
     // own, especially right after a screen swap. Ask for focus, then ask for
     // the keyboard explicitly, and repeat once or twice in case the field
     // hadn't finished composing yet. Showing an already-open keyboard is a no-op.
-    fun raiseKeyboard() {
+    fun raiseKeyboard(onReady: () -> Unit = {}) {
         scope.launch {
             delay(90)
             repeat(3) {
@@ -135,6 +158,7 @@ fun JotApp() {
                 }
                 delay(130)
             }
+            onReady()
         }
     }
 
@@ -147,6 +171,13 @@ fun JotApp() {
     var searching by remember { mutableStateOf(false) }
     var resumeNew by remember { mutableStateOf(Prefs.resumeNew(context)) }
     var resumeMinutes by remember { mutableStateOf(Prefs.resumeMinutes(context)) }
+    var lockedPaths by remember { mutableStateOf(Prefs.lockedPaths(context)) }
+    var defaultDir by remember { mutableStateOf(Prefs.defaultDir(context)) }
+
+    // Multi-select. Null means normal browsing; a set means the tree is
+    // showing tick boxes and the menu bar has turned into a selection bar.
+    var selected by remember { mutableStateOf<Set<String>?>(null) }
+    var trash by remember { mutableStateOf<List<TrashItem>>(emptyList()) }
 
     var currentFile by remember { mutableStateOf<File?>(null) }
     var currentDir by remember { mutableStateOf(NoteStore.ensureRoot()) }
@@ -160,6 +191,7 @@ fun JotApp() {
     var padBase by remember { mutableStateOf<String?>(null) }
 
     var overflow by remember { mutableStateOf(false) }
+    var noteMenu by remember { mutableStateOf(false) }
     var dialog by remember { mutableStateOf<DialogState?>(null) }
     var status by remember { mutableStateOf<String?>(null) }
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
@@ -179,6 +211,14 @@ fun JotApp() {
         tree = NoteStore.loadTree()
         Prefs.prune(context)
         pins = Prefs.pins(context)
+        lockedPaths = Prefs.lockedPaths(context)
+        defaultDir = Prefs.defaultDir(context)
+    }
+
+    /** Where a new note goes when no folder was picked. */
+    fun newNoteDir(): File {
+        val configured = defaultDir?.let(::File)
+        return if (configured != null && configured.isDirectory) configured else NoteStore.ensureRoot()
     }
 
     fun persist() {
@@ -192,7 +232,7 @@ fun JotApp() {
         refresh()
     }
 
-    fun newNote(dir: File = NoteStore.ensureRoot()) {
+    fun newNote(dir: File = newNoteDir()) {
         persist()
         currentFile = null
         currentDir = dir
@@ -216,12 +256,58 @@ fun JotApp() {
         // keyboard up, ready to carry on writing.
         padBase = d.body
         val padded = padFor(d.body)
-        body = TextFieldValue(padded, selection = TextRange(padded.length))
+        // Caret at 0 for now. Moving it only after the field has focus is
+        // what makes the editor scroll down to it; setting it at the same
+        // time as the text leaves the caret off-screen on a long note.
+        body = TextFieldValue(padded)
         readMode = false
         showToolbar = false
         screen = Screen.EDITOR
         scope.launch { drawerState.close() }
-        raiseKeyboard()
+        raiseKeyboard {
+            body = body.copy(selection = TextRange(body.text.length))
+        }
+    }
+
+    // ---------------- deleting, moving, locking ----------------
+
+    fun isLocked(f: File): Boolean = lockedPaths.contains(f.absolutePath)
+
+    fun toggleLock(f: File) {
+        val now = !isLocked(f)
+        Prefs.setLocked(context, f.absolutePath, now)
+        lockedPaths = Prefs.lockedPaths(context)
+        status = if (now) "Locked. It can't be deleted until you unlock it." else "Unlocked."
+    }
+
+    /** Bins one node, clearing the editor if it was the open note. */
+    fun trashNode(node: NoteNode): Boolean {
+        val path = node.file.absolutePath
+        val moved = NoteStore.moveToTrash(node.file)
+        if (moved) {
+            Prefs.forgetPath(context, path)
+            if (currentFile?.absolutePath == path ||
+                currentFile?.absolutePath?.startsWith("$path/") == true
+            ) {
+                currentFile = null
+                title = ""
+                body = TextFieldValue("")
+                padBase = null
+            }
+        }
+        return moved
+    }
+
+    fun moveNode(node: NoteNode, dest: File): Boolean {
+        val old = node.file.absolutePath
+        val moved = NoteStore.move(node, dest) ?: return false
+        Prefs.repath(context, old, moved.absolutePath)
+        if (currentFile?.absolutePath == old) {
+            currentFile = moved
+            currentDir = moved.parentFile ?: NoteStore.ensureRoot()
+        }
+        refresh()
+        return true
     }
 
     fun goHome() {
@@ -232,6 +318,7 @@ fun JotApp() {
     // Cold start: straight into a blank note with the caret in the body.
     LaunchedEffect(Unit) {
         NoteStore.ensureRoot()
+        NoteStore.purgeTrash(Prefs.TRASH_KEEP_DAYS)
         refresh()
         raiseKeyboard()
     }
@@ -243,6 +330,30 @@ fun JotApp() {
             if (!draft().isBlank) persist()
         }
     }
+
+    // One set of row actions shared by the home tree and the slide-out tree,
+    // so the two can never drift apart.
+    val treeActions = TreeActions(
+        onToggleFolder = { path ->
+            if (expanded.contains(path)) expanded.remove(path) else expanded.add(path)
+        },
+        onOpenNote = { openNote(it) },
+        onNewNoteIn = { newNote(it) },
+        onNewFolderIn = { dialog = DialogState.NewFolder(it) },
+        onRename = { dialog = DialogState.Rename(it) },
+        onDelete = { dialog = DialogState.Delete(it) },
+        onMove = { dialog = DialogState.MoveTo(setOf(it.file.absolutePath)) },
+        onToggleLock = { toggleLock(it.file) },
+        onStartSelection = { selected = setOf(it.file.absolutePath) },
+        onToggleSelected = { node ->
+            val path = node.file.absolutePath
+            val now = selected.orEmpty().toMutableSet()
+            if (!now.remove(path)) now.add(path)
+            // Dropping the last tick leaves selection mode entirely.
+            selected = if (now.isEmpty()) null else now
+        },
+        isLocked = { lockedPaths.contains(it.file.absolutePath) },
+    )
 
     // Save on backgrounding, and optionally hand back a fresh note if the
     // app has been out of sight long enough that you've moved on.
@@ -289,12 +400,16 @@ fun JotApp() {
     }
 
     // Back button: leave search, close the drawer, else fall back toward Home.
-    BackHandler(enabled = drawerState.isOpen || searching || screen != Screen.HOME) {
+    BackHandler(
+        enabled = drawerState.isOpen || searching || selected != null || screen != Screen.HOME
+    ) {
         when {
             drawerState.isOpen -> scope.launch { drawerState.close() }
+            selected != null -> selected = null
             searching -> searching = false
             screen == Screen.EDITOR -> goHome()
             screen == Screen.SETTINGS -> screen = Screen.HOME
+            screen == Screen.TRASH -> screen = Screen.SETTINGS
             else -> Unit
         }
     }
@@ -315,14 +430,7 @@ fun JotApp() {
                     tree = tree,
                     openFile = currentFile,
                     expanded = expanded.toSet(),
-                    onToggleFolder = { path ->
-                        if (expanded.contains(path)) expanded.remove(path) else expanded.add(path)
-                    },
-                    onOpenNote = { openNote(it) },
-                    onNewNoteIn = { newNote(it) },
-                    onNewFolderIn = { dialog = DialogState.NewFolder(it) },
-                    onRename = { dialog = DialogState.Rename(it) },
-                    onDelete = { dialog = DialogState.Delete(it) },
+                    actions = treeActions,
                 )
 
                 // A clear edge so the panel reads as sitting on top of the screen.
@@ -346,18 +454,19 @@ fun JotApp() {
                 openFile = currentFile,
                 expanded = expanded.toSet(),
                 searching = searching,
-                onToggleFolder = { path ->
-                    if (expanded.contains(path)) expanded.remove(path) else expanded.add(path)
-                },
-                onOpenNote = { openNote(it) },
-                onNewFolderIn = { dialog = DialogState.NewFolder(it) },
-                onRename = { dialog = DialogState.Rename(it) },
-                onDelete = { dialog = DialogState.Delete(it) },
+                actions = treeActions,
+                selected = selected,
+                onClearSelection = { selected = null },
+                onSelectDelete = { dialog = DialogState.DeleteMany(selected.orEmpty()) },
+                onSelectMove = { dialog = DialogState.MoveTo(selected.orEmpty()) },
                 onOpenSearch = { searching = true },
                 onCloseSearch = { searching = false },
                 onOverflow = { overflow = it },
                 overflowOpen = overflow,
-                onSettings = { screen = Screen.SETTINGS },
+                onSettings = {
+                    trash = NoteStore.trashItems()
+                    screen = Screen.SETTINGS
+                },
                 onCheckUpdate = { checkForUpdate() },
                 onNewNote = { searching = false; newNote() },
                 onOpenPin = { path -> openNote(File(path)) },
@@ -365,6 +474,27 @@ fun JotApp() {
                 onSetIcon = { p, i -> Prefs.updatePin(context, p, icon = i); pins = Prefs.pins(context) },
                 onSetColor = { p, c -> Prefs.updatePin(context, p, color = c); pins = Prefs.pins(context) },
                 onUnpin = { p -> Prefs.unpin(context, p); pins = Prefs.pins(context) },
+            )
+
+            Screen.TRASH -> TrashScreen(
+                items = trash,
+                onBack = { screen = Screen.SETTINGS },
+                onRestore = { item ->
+                    val back = NoteStore.restoreFromTrash(item)
+                    status = if (back != null) "Restored to ${NoteStore.labelFor(back.parentFile ?: NoteStore.root)}."
+                    else "Couldn't restore that."
+                    trash = NoteStore.trashItems()
+                    refresh()
+                },
+                onDeleteForever = { item ->
+                    NoteStore.deleteFromTrash(item)
+                    trash = NoteStore.trashItems()
+                },
+                onEmpty = {
+                    val n = NoteStore.emptyTrash()
+                    trash = NoteStore.trashItems()
+                    status = "Deleted $n for good."
+                },
             )
 
             Screen.SETTINGS -> SettingsScreen(
@@ -377,6 +507,16 @@ fun JotApp() {
                 onFabSize = {
                     Prefs.setFabSize(context, it)
                     fabSize = it
+                },
+                defaultDir = defaultDir,
+                onDefaultDir = {
+                    Prefs.setDefaultDir(context, it)
+                    defaultDir = Prefs.defaultDir(context)
+                },
+                trashCount = trash.size,
+                onOpenTrash = {
+                    trash = NoteStore.trashItems()
+                    screen = Screen.TRASH
                 },
                 resumeNew = resumeNew,
                 onResumeNew = {
@@ -420,6 +560,19 @@ fun JotApp() {
                 showToolbar = showToolbar,
                 onToggleToolbar = { showToolbar = !showToolbar },
                 isPinned = currentFile?.let { f -> pins.any { it.path == f.absolutePath } } ?: false,
+                isLocked = currentFile?.let { isLocked(it) } ?: false,
+                noteMenuOpen = noteMenu,
+                onNoteMenu = { noteMenu = it },
+                onToggleLock = { currentFile?.let { toggleLock(it) } },
+                onMoveNote = {
+                    persist()
+                    currentFile?.let { dialog = DialogState.MoveTo(setOf(it.absolutePath)) }
+                },
+                onDeleteNote = {
+                    currentFile?.let { f ->
+                        dialog = DialogState.Delete(NoteNode(f, isFolder = false))
+                    }
+                },
                 canPin = currentFile != null,
                 onTogglePin = {
                     currentFile?.let { f ->
@@ -435,7 +588,11 @@ fun JotApp() {
                 onBrowse = { scope.launch { drawerState.open() } },
                 overflowOpen = overflow,
                 onOverflow = { overflow = it },
-                onSettings = { persist(); screen = Screen.SETTINGS },
+                onSettings = {
+                    persist()
+                    trash = NoteStore.trashItems()
+                    screen = Screen.SETTINGS
+                },
                 onCheckUpdate = { checkForUpdate() },
                 onDone = { goHome() },
                 onNewNote = { newNote() },
@@ -478,32 +635,230 @@ fun JotApp() {
             },
         )
 
-        is DialogState.Delete -> AlertDialog(
-            onDismissRequest = { dialog = null },
-            containerColor = Slate.Secondary,
-            title = { Text("Delete ${d.node.displayName}?", color = Slate.Text, fontSize = 17.sp) },
-            text = {
-                Text(
-                    if (d.node.isFolder) "This removes the folder and everything inside it."
-                    else "This deletes the note file.",
-                    color = Slate.Muted, fontSize = 14.sp,
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    Prefs.unpin(context, d.node.file.absolutePath)
-                    if (d.node.file == currentFile) {
-                        currentFile = null; title = ""; body = TextFieldValue("")
+        is DialogState.Delete -> {
+            val node = d.node
+            val path = node.file.absolutePath
+            val lockedInside = if (node.isFolder) Prefs.lockedUnder(context, path) else emptyList()
+            val selfLocked = !node.isFolder && lockedPaths.contains(path)
+            val noteCount = if (node.isFolder) NoteStore.countNotesUnder(node.file) else 0
+            val isDefaultDir = node.isFolder && defaultDir == path
+            val blocked = selfLocked || lockedInside.isNotEmpty()
+
+            AlertDialog(
+                onDismissRequest = { dialog = null },
+                containerColor = Slate.Secondary,
+                title = {
+                    Text(
+                        if (blocked) "Can't delete ${node.displayName}"
+                        else "Delete ${node.displayName}?",
+                        color = Slate.Text, fontSize = 17.sp,
+                    )
+                },
+                text = {
+                    Column {
+                        when {
+                            selfLocked -> Text(
+                                "This note is locked. Unlock it first if you really want it gone.",
+                                color = Slate.Muted, fontSize = 14.sp,
+                            )
+
+                            lockedInside.isNotEmpty() -> Text(
+                                "This folder holds ${lockedInside.size} locked " +
+                                    (if (lockedInside.size == 1) "note" else "notes") +
+                                    ". Unlock them first if you really want the folder gone.",
+                                color = Slate.Muted, fontSize = 14.sp,
+                            )
+
+                            node.isFolder -> {
+                                Text(
+                                    if (noteCount == 0) "The folder is empty."
+                                    else "$noteCount " +
+                                        (if (noteCount == 1) "note" else "notes") +
+                                        " inside will go to the trash with it.",
+                                    color = if (noteCount == 0) Slate.Muted else Slate.Text,
+                                    fontSize = 14.sp,
+                                )
+                                if (isDefaultDir) {
+                                    Text(
+                                        "This is your folder for new notes. Deleting it sends new notes back to the top level.",
+                                        color = Slate.Danger, fontSize = 13.sp,
+                                        modifier = Modifier.padding(top = 8.dp),
+                                    )
+                                }
+                            }
+
+                            else -> Text(
+                                "The note goes to the trash.",
+                                color = Slate.Muted, fontSize = 14.sp,
+                            )
+                        }
+                        if (!blocked) {
+                            Text(
+                                "You can restore it from the trash for ${Prefs.TRASH_KEEP_DAYS} days.",
+                                color = Slate.Muted, fontSize = 12.sp,
+                                modifier = Modifier.padding(top = 10.dp),
+                            )
+                        }
                     }
-                    NoteStore.delete(d.node.file)
-                    refresh()
-                    dialog = null
-                }) { Text("Delete", color = Slate.Danger) }
-            },
-            dismissButton = {
-                TextButton(onClick = { dialog = null }) { Text("Cancel", color = Slate.Muted) }
-            },
-        )
+                },
+                confirmButton = {
+                    if (blocked) {
+                        TextButton(onClick = { dialog = null }) {
+                            Text("OK", color = Slate.Accent)
+                        }
+                    } else {
+                        TextButton(onClick = {
+                            val ok = trashNode(node)
+                            status = if (ok) "Moved to trash." else "Couldn't delete that."
+                            refresh()
+                            dialog = null
+                        }) { Text("Move to trash", color = Slate.Danger) }
+                    }
+                },
+                dismissButton = {
+                    if (!blocked) {
+                        TextButton(onClick = { dialog = null }) { Text("Cancel", color = Slate.Muted) }
+                    }
+                },
+            )
+        }
+
+        is DialogState.DeleteMany -> {
+            val nodes = topLevelOf(NoteStore.flatten(tree).filter { d.paths.contains(it.file.absolutePath) })
+            val locked = nodes.filter { n ->
+                lockedPaths.contains(n.file.absolutePath) ||
+                    (n.isFolder && Prefs.lockedUnder(context, n.file.absolutePath).isNotEmpty())
+            }
+            val deletable = nodes - locked.toSet()
+
+            AlertDialog(
+                onDismissRequest = { dialog = null },
+                containerColor = Slate.Secondary,
+                title = {
+                    Text(
+                        "Delete ${deletable.size} " +
+                            if (deletable.size == 1) "item?" else "items?",
+                        color = Slate.Text, fontSize = 17.sp,
+                    )
+                },
+                text = {
+                    Column {
+                        if (deletable.isEmpty()) {
+                            Text(
+                                "Everything you picked is locked, so nothing would be deleted.",
+                                color = Slate.Muted, fontSize = 14.sp,
+                            )
+                        } else {
+                            Text(
+                                "They go to the trash and can be restored for ${Prefs.TRASH_KEEP_DAYS} days.",
+                                color = Slate.Muted, fontSize = 14.sp,
+                            )
+                        }
+                        if (locked.isNotEmpty()) {
+                            Text(
+                                "${locked.size} locked " +
+                                    (if (locked.size == 1) "item is" else "items are") +
+                                    " in your selection and will be left alone.",
+                                color = Slate.Danger, fontSize = 13.sp,
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    if (deletable.isEmpty()) {
+                        TextButton(onClick = { dialog = null }) { Text("OK", color = Slate.Accent) }
+                    } else {
+                        TextButton(onClick = {
+                            // Deepest paths first, so binning a child cannot
+                            // fail because its parent already moved.
+                            var n = 0
+                            deletable
+                                .sortedByDescending { it.file.absolutePath.count { ch -> ch == '/' } }
+                                .forEach { if (trashNode(it)) n++ }
+                            selected = null
+                            status = "Moved $n to trash."
+                            refresh()
+                            dialog = null
+                        }) { Text("Move to trash", color = Slate.Danger) }
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { dialog = null }) { Text("Cancel", color = Slate.Muted) }
+                },
+            )
+        }
+
+        is DialogState.MoveTo -> {
+            val moving = topLevelOf(NoteStore.flatten(tree).filter { d.paths.contains(it.file.absolutePath) })
+            // A folder cannot be moved inside itself, and nothing gains from
+            // being "moved" into the folder it already sits in.
+            val blockedPrefixes = moving.filter { it.isFolder }.map { it.file.absolutePath }
+            val currentParents = moving.mapNotNull { it.file.parentFile?.absolutePath }.toSet()
+            val choices = NoteStore.allFolders().filter { f ->
+                val fp = f.absolutePath
+                blockedPrefixes.none { fp == it || fp.startsWith("$it/") } &&
+                    !(moving.size == 1 && currentParents.contains(fp))
+            }
+
+            AlertDialog(
+                onDismissRequest = { dialog = null },
+                containerColor = Slate.Secondary,
+                title = {
+                    Text(
+                        if (moving.size == 1) "Move ${moving.first().displayName} to..."
+                        else "Move ${moving.size} items to...",
+                        color = Slate.Text, fontSize = 17.sp,
+                    )
+                },
+                text = {
+                    if (choices.isEmpty()) {
+                        Text(
+                            "There is nowhere else to put it. Make a folder first.",
+                            color = Slate.Muted, fontSize = 14.sp,
+                        )
+                    } else {
+                        Column(
+                            Modifier
+                                .heightIn(max = 380.dp)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            choices.forEach { folder ->
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            var n = 0
+                                            moving.forEach { if (moveNode(it, folder)) n++ }
+                                            selected = null
+                                            status = if (n == 0) "Couldn't move that."
+                                            else "Moved $n to ${NoteStore.labelFor(folder)}."
+                                            dialog = null
+                                        }
+                                        .padding(vertical = 11.dp, horizontal = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Folder, null,
+                                        tint = Slate.Sun,
+                                        modifier = Modifier.size(17.dp),
+                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(
+                                        NoteStore.labelFor(folder),
+                                        color = Slate.Text, fontSize = 14.sp,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { dialog = null }) { Text("Cancel", color = Slate.Muted) }
+                },
+            )
+        }
 
         null -> Unit
     }
@@ -590,11 +945,11 @@ private fun HomeScreen(
     openFile: File?,
     expanded: Set<String>,
     searching: Boolean,
-    onToggleFolder: (String) -> Unit,
-    onOpenNote: (File) -> Unit,
-    onNewFolderIn: (File) -> Unit,
-    onRename: (NoteNode) -> Unit,
-    onDelete: (NoteNode) -> Unit,
+    actions: TreeActions,
+    selected: Set<String>?,
+    onClearSelection: () -> Unit,
+    onSelectDelete: () -> Unit,
+    onSelectMove: () -> Unit,
     onOpenSearch: () -> Unit,
     onCloseSearch: () -> Unit,
     onOverflow: (Boolean) -> Unit,
@@ -622,12 +977,19 @@ private fun HomeScreen(
                 if (searching) {
                     SearchPane(
                         tree = tree,
-                        onOpenNote = onOpenNote,
+                        onOpenNote = actions.onOpenNote,
                         onClose = onCloseSearch,
                         bottomReserve = fabClearance,
                         modifier = Modifier
                             .statusBarsPadding()
                             .navigationBarsPadding(),
+                    )
+                } else if (selected != null) {
+                    SelectionBar(
+                        count = selected.size,
+                        onMove = onSelectMove,
+                        onDelete = onSelectDelete,
+                        onCancel = onClearSelection,
                     )
                 } else {
                     TopBar(
@@ -638,7 +1000,7 @@ private fun HomeScreen(
                         onCheckUpdate = onCheckUpdate,
                         trailing = {
                             IconButton(
-                                onClick = { onNewFolderIn(NoteStore.ensureRoot()) },
+                                onClick = { actions.onNewFolderIn(NoteStore.ensureRoot()) },
                                 modifier = Modifier.size(42.dp),
                             ) {
                                 Icon(
@@ -654,12 +1016,8 @@ private fun HomeScreen(
                         openFile = openFile,
                         expanded = expanded,
                         rowBackground = Slate.Background,
-                        onToggleFolder = onToggleFolder,
-                        onOpenNote = onOpenNote,
-                        onNewNoteIn = { onNewNote() },
-                        onNewFolderIn = onNewFolderIn,
-                        onRename = onRename,
-                        onDelete = onDelete,
+                        actions = actions,
+                        selection = selected?.let { TreeSelection(it) },
                         bottomReserve = fabClearance,
                         modifier = Modifier.navigationBarsPadding(),
                     )
@@ -726,6 +1084,12 @@ private fun EditorScreen(
     isPinned: Boolean,
     canPin: Boolean,
     onTogglePin: () -> Unit,
+    isLocked: Boolean,
+    noteMenuOpen: Boolean,
+    onNoteMenu: (Boolean) -> Unit,
+    onToggleLock: () -> Unit,
+    onMoveNote: () -> Unit,
+    onDeleteNote: () -> Unit,
     onOpenSearch: () -> Unit,
     onBrowse: () -> Unit,
     overflowOpen: Boolean,
@@ -759,6 +1123,40 @@ private fun EditorScreen(
                             tint = if (isPinned) Slate.Sun else Slate.Muted,
                             modifier = Modifier.size(21.dp),
                         )
+                    }
+                    Box {
+                        IconButton(
+                            onClick = { onNoteMenu(true) },
+                            modifier = Modifier.size(42.dp),
+                        ) {
+                            Icon(
+                                Icons.Filled.MoreHoriz, "Note actions",
+                                tint = Slate.Muted,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = noteMenuOpen,
+                            onDismissRequest = { onNoteMenu(false) },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Move to...", fontSize = 14.sp) },
+                                onClick = { onNoteMenu(false); onMoveNote() },
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (isLocked) "Unlock" else "Lock (prevent delete)",
+                                        fontSize = 14.sp,
+                                    )
+                                },
+                                onClick = { onNoteMenu(false); onToggleLock() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete note", fontSize = 14.sp, color = Slate.Danger) },
+                                onClick = { onNoteMenu(false); onDeleteNote() },
+                            )
+                        }
                     }
                 }
             },
@@ -869,11 +1267,12 @@ private fun EditorScreen(
                     Text("Edit", color = Slate.Accent, fontSize = 14.sp)
                 }
             } else {
-                TextButton(onClick = onToggleToolbar) {
-                    Text(
-                        "Format",
-                        color = if (showToolbar) Slate.Accent else Slate.Muted,
-                        fontSize = 14.sp,
+                IconButton(onClick = onToggleToolbar, modifier = Modifier.size(42.dp)) {
+                    Icon(
+                        Icons.Filled.TextFormat,
+                        if (showToolbar) "Hide formatting" else "Formatting",
+                        tint = if (showToolbar) Slate.Accent else Slate.Muted,
+                        modifier = Modifier.size(24.dp),
                     )
                 }
                 TextButton(onClick = onEnterRead) {
@@ -935,6 +1334,56 @@ private fun ToolButton(
 // ==================================================================
 // Shared top bar: controls on the LEFT, title after them
 // ==================================================================
+
+/**
+ * Replaces the menu bar while items are ticked. Same height as the menu bar,
+ * so the layout does not jump when selection mode starts.
+ */
+@Composable
+private fun SelectionBar(
+    count: Int,
+    onMove: () -> Unit,
+    onDelete: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(Slate.Secondary)
+            .statusBarsPadding()
+            .padding(start = 4.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onCancel, modifier = Modifier.size(44.dp)) {
+            Icon(
+                Icons.Filled.Close, "Cancel selection",
+                tint = Slate.Text,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        Text(
+            "$count selected",
+            color = Slate.Text,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.weight(1f))
+        IconButton(onClick = onMove, modifier = Modifier.size(44.dp)) {
+            Icon(
+                Icons.Filled.DriveFileMove, "Move selected",
+                tint = Slate.Accent,
+                modifier = Modifier.size(21.dp),
+            )
+        }
+        IconButton(onClick = onDelete, modifier = Modifier.size(44.dp)) {
+            Icon(
+                Icons.Filled.Delete, "Delete selected",
+                tint = Slate.Danger,
+                modifier = Modifier.size(21.dp),
+            )
+        }
+    }
+}
 
 @Composable
 private fun TopBar(
@@ -1026,6 +1475,8 @@ private sealed interface DialogState {
     data class NewFolder(val parent: File) : DialogState
     data class Rename(val node: NoteNode) : DialogState
     data class Delete(val node: NoteNode) : DialogState
+    data class DeleteMany(val paths: Set<String>) : DialogState
+    data class MoveTo(val paths: Set<String>) : DialogState
 }
 
 @Composable

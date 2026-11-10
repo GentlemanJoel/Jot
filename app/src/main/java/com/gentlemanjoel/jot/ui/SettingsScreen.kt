@@ -25,6 +25,9 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.RadioButtonChecked
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -53,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import com.gentlemanjoel.jot.BuildConfig
 import com.gentlemanjoel.jot.FabSize
 import com.gentlemanjoel.jot.PanelWidth
+import com.gentlemanjoel.jot.NoteStore
 import com.gentlemanjoel.jot.Prefs
 
 @Composable
@@ -61,6 +65,10 @@ fun SettingsScreen(
     onPanelWidth: (PanelWidth) -> Unit,
     fabSize: FabSize,
     onFabSize: (FabSize) -> Unit,
+    defaultDir: String?,
+    onDefaultDir: (String?) -> Unit,
+    trashCount: Int,
+    onOpenTrash: () -> Unit,
     resumeNew: Boolean,
     onResumeNew: (Boolean) -> Unit,
     resumeMinutes: Int,
@@ -237,6 +245,49 @@ fun SettingsScreen(
             }
 
             CollapsibleSection(
+                title = "New notes",
+                expanded = open.contains("newnotes"),
+                onToggle = { toggle("newnotes") },
+            ) {
+            Text(
+                "Where a new note is filed when you haven't picked a folder.",
+                color = Slate.Muted,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 6.dp, bottom = 8.dp),
+            )
+            val folders = remember(defaultDir) { NoteStore.allFolders() }
+            Column(Modifier.fillMaxWidth()) {
+                folders.forEach { f ->
+                    val path = f.absolutePath
+                    val isRoot = path == NoteStore.root.absolutePath
+                    val selected = if (defaultDir == null) isRoot else defaultDir == path
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onDefaultDir(if (isRoot) null else path) }
+                            .padding(vertical = 10.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            if (selected) Icons.Filled.RadioButtonChecked
+                            else Icons.Filled.RadioButtonUnchecked,
+                            null,
+                            tint = if (selected) Slate.Accent else Slate.Muted,
+                            modifier = Modifier.size(17.dp),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            NoteStore.labelFor(f),
+                            color = if (selected) Slate.Accent else Slate.Text,
+                            fontSize = 14.sp,
+                        )
+                    }
+                }
+            }
+            }
+
+            CollapsibleSection(
                 title = "Reopening the app",
                 expanded = open.contains("resume"),
                 onToggle = { toggle("resume") },
@@ -369,6 +420,44 @@ fun SettingsScreen(
             }
 
             }
+
+            // Trash gets a plain row rather than a folding section, because
+            // there is nothing to configure here - it just opens.
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onOpenTrash() }
+                    .padding(vertical = 15.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "TRASH",
+                    color = Slate.Text,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.width(10.dp))
+                if (trashCount > 0) {
+                    Text(
+                        "$trashCount",
+                        color = Slate.Accent,
+                        fontSize = 12.sp,
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                Icon(
+                    Icons.Filled.ChevronRight, "Open trash",
+                    tint = Slate.Muted,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(Slate.Divider)
+            )
 
             // Version, with a small update check sitting right beside it.
             Row(

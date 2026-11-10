@@ -26,17 +26,14 @@ enum class PanelWidth(val label: String, val widthDp: Int) {
     ICON_LARGE("Large - icon only", 86),
     ICON_HUGE("Huge - icon only", 104),
     LABEL_SLIM("Slim - with names", 140),
-    LABEL_NARROW("Narrow - with names", 170),
-    LABEL_MEDIUM("Medium - with names", 210),
-    LABEL_WIDE("Wide - with names", 260),
-    LABEL_XWIDE("Extra wide - with names", 310);
+    LABEL_NARROW("Narrow - with names", 170);
 
     /** Too narrow for a readable name, so the row shows just the icon. */
     val iconsOnly: Boolean get() = widthDp < LABEL_FLOOR
 
     companion object {
         const val LABEL_FLOOR = 130
-        val DEFAULT = LABEL_MEDIUM
+        val DEFAULT = LABEL_NARROW
     }
 }
 
@@ -65,6 +62,11 @@ object Prefs {
     private const val KEY_TOKEN = "github_token"
     private const val KEY_RESUME_NEW = "resume_new_note"
     private const val KEY_RESUME_MINS = "resume_after_minutes"
+    private const val KEY_LOCKED = "locked_paths"
+    private const val KEY_DEFAULT_DIR = "default_new_note_dir"
+
+    /** How long a trashed note is kept before it is purged for good. */
+    const val TRASH_KEEP_DAYS = 30
 
     /** Minute thresholds offered for "start a new note when I come back". */
     val RESUME_CHOICES = listOf(1, 2, 5, 15, 60)
@@ -200,6 +202,40 @@ object Prefs {
         prefs(c).edit().putInt(KEY_RESUME_MINS, mins).apply()
     }
 
+    // ---------------- delete locks ----------------
+
+    /**
+     * Paths the user has locked. A locked note cannot be deleted from inside
+     * the app, and a folder holding one cannot be deleted either. This is app
+     * state, not file state, so deleting the file on the PC still works.
+     */
+    fun lockedPaths(c: Context): Set<String> =
+        prefs(c).getStringSet(KEY_LOCKED, emptySet())?.toSet() ?: emptySet()
+
+    fun isLocked(c: Context, path: String): Boolean = lockedPaths(c).contains(path)
+
+    fun setLocked(c: Context, path: String, locked: Boolean) {
+        val next = lockedPaths(c).toMutableSet()
+        if (locked) next.add(path) else next.remove(path)
+        prefs(c).edit().putStringSet(KEY_LOCKED, next).apply()
+    }
+
+    /** Locked paths at or beneath [dir], so a folder delete can be blocked. */
+    fun lockedUnder(c: Context, dir: String): List<String> {
+        val prefix = dir.trimEnd('/') + "/"
+        return lockedPaths(c).filter { it == dir || it.startsWith(prefix) }
+    }
+
+    // ---------------- default folder for new notes ----------------
+
+    /** Where a new note is filed when no folder was chosen. Null means the root. */
+    fun defaultDir(c: Context): String? =
+        prefs(c).getString(KEY_DEFAULT_DIR, "")?.takeIf { it.isNotBlank() }
+
+    fun setDefaultDir(c: Context, path: String?) {
+        prefs(c).edit().putString(KEY_DEFAULT_DIR, path ?: "").apply()
+    }
+
     fun token(c: Context): String = prefs(c).getString(KEY_TOKEN, "") ?: ""
 
     fun setToken(c: Context, t: String) {
@@ -274,10 +310,43 @@ object Prefs {
     fun prune(c: Context) {
         val alive = pins(c).filter { java.io.File(it.path).exists() }
         if (alive.size != pins(c).size) savePins(c, alive)
+
+        // A note deleted on the PC leaves a lock behind that guards nothing.
+        val locks = lockedPaths(c)
+        val liveLocks = locks.filter { java.io.File(it).exists() }.toSet()
+        if (liveLocks.size != locks.size) {
+            prefs(c).edit().putStringSet(KEY_LOCKED, liveLocks).apply()
+        }
+        defaultDir(c)?.let { if (!java.io.File(it).isDirectory) setDefaultDir(c, null) }
     }
 
-    /** Renames a pin's path in place so pinning survives a note rename. */
+    /**
+     * Follows a rename or move everywhere a path is stored: pins, locks, and
+     * the default-folder setting. Children are carried too, so moving a folder
+     * does not silently unlock the notes inside it.
+     */
     fun repath(c: Context, oldPath: String, newPath: String) {
-        savePins(c, pins(c).map { if (it.path == oldPath) it.copy(path = newPath) else it })
+        val oldPrefix = oldPath.trimEnd('/') + "/"
+        fun moved(p: String): String = when {
+            p == oldPath -> newPath
+            p.startsWith(oldPrefix) -> newPath.trimEnd('/') + "/" + p.removePrefix(oldPrefix)
+            else -> p
+        }
+        savePins(c, pins(c).map { it.copy(path = moved(it.path)) })
+        prefs(c).edit()
+            .putStringSet(KEY_LOCKED, lockedPaths(c).map { moved(it) }.toSet())
+            .apply()
+        defaultDir(c)?.let { d -> if (moved(d) != d) setDefaultDir(c, moved(d)) }
+    }
+
+    /** Forgets every stored reference to a path and its children. */
+    fun forgetPath(c: Context, path: String) {
+        val prefix = path.trimEnd('/') + "/"
+        fun hit(p: String) = p == path || p.startsWith(prefix)
+        savePins(c, pins(c).filterNot { hit(it.path) })
+        prefs(c).edit()
+            .putStringSet(KEY_LOCKED, lockedPaths(c).filterNot { hit(it) }.toSet())
+            .apply()
+        defaultDir(c)?.let { if (hit(it)) setDefaultDir(c, null) }
     }
 }

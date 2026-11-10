@@ -23,12 +23,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -55,6 +58,28 @@ import com.gentlemanjoel.jot.NoteStore
 import java.io.File
 
 /**
+ * Everything a tree row can do, bundled into one object. The tree recurses,
+ * so passing these individually meant a dozen positional arguments at every
+ * level - easy to transpose and hard to extend.
+ */
+data class TreeActions(
+    val onToggleFolder: (String) -> Unit,
+    val onOpenNote: (File) -> Unit,
+    val onNewNoteIn: (File) -> Unit,
+    val onNewFolderIn: (File) -> Unit,
+    val onRename: (NoteNode) -> Unit,
+    val onDelete: (NoteNode) -> Unit,
+    val onMove: (NoteNode) -> Unit = {},
+    val onToggleLock: (NoteNode) -> Unit = {},
+    val onStartSelection: (NoteNode) -> Unit = {},
+    val onToggleSelected: (NoteNode) -> Unit = {},
+    val isLocked: (NoteNode) -> Boolean = { false },
+)
+
+/** Which paths are ticked. Non-null means the tree is in multi-select mode. */
+data class TreeSelection(val paths: Set<String>)
+
+/**
  * The folder tree of every note. Lives on the home screen, and is reused
  * inside the editor's slide-out drawer.
  */
@@ -64,12 +89,8 @@ fun NoteTreeList(
     openFile: File?,
     expanded: Set<String>,
     rowBackground: androidx.compose.ui.graphics.Color,
-    onToggleFolder: (String) -> Unit,
-    onOpenNote: (File) -> Unit,
-    onNewNoteIn: (File) -> Unit,
-    onNewFolderIn: (File) -> Unit,
-    onRename: (NoteNode) -> Unit,
-    onDelete: (NoteNode) -> Unit,
+    actions: TreeActions,
+    selection: TreeSelection? = null,
     modifier: Modifier = Modifier,
     bottomReserve: Dp = 0.dp,
 ) {
@@ -110,12 +131,8 @@ fun NoteTreeList(
             expanded = expanded,
             openFile = openFile,
             rowBackground = rowBackground,
-            onToggleFolder = onToggleFolder,
-            onOpenNote = onOpenNote,
-            onNewNoteIn = onNewNoteIn,
-            onNewFolderIn = onNewFolderIn,
-            onRename = onRename,
-            onDelete = onDelete,
+            actions = actions,
+            selection = selection,
         )
     }
 }
@@ -254,12 +271,7 @@ fun DrawerTree(
     tree: List<NoteNode>,
     openFile: File?,
     expanded: Set<String>,
-    onToggleFolder: (String) -> Unit,
-    onOpenNote: (File) -> Unit,
-    onNewNoteIn: (File) -> Unit,
-    onNewFolderIn: (File) -> Unit,
-    onRename: (NoteNode) -> Unit,
-    onDelete: (NoteNode) -> Unit,
+    actions: TreeActions,
 ) {
     Column(
         Modifier
@@ -276,10 +288,16 @@ fun DrawerTree(
         ) {
             Text("All notes", color = Slate.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = { onNewNoteIn(NoteStore.ensureRoot()) }, modifier = Modifier.size(34.dp)) {
+            IconButton(
+                onClick = { actions.onNewNoteIn(NoteStore.ensureRoot()) },
+                modifier = Modifier.size(34.dp),
+            ) {
                 Icon(Icons.Filled.Add, "New note", tint = Slate.Accent, modifier = Modifier.size(19.dp))
             }
-            IconButton(onClick = { onNewFolderIn(NoteStore.ensureRoot()) }, modifier = Modifier.size(34.dp)) {
+            IconButton(
+                onClick = { actions.onNewFolderIn(NoteStore.ensureRoot()) },
+                modifier = Modifier.size(34.dp),
+            ) {
                 Icon(
                     Icons.Filled.CreateNewFolder, "New folder",
                     tint = Slate.Accent, modifier = Modifier.size(19.dp),
@@ -299,12 +317,7 @@ fun DrawerTree(
             openFile = openFile,
             expanded = expanded,
             rowBackground = Slate.Secondary,
-            onToggleFolder = onToggleFolder,
-            onOpenNote = onOpenNote,
-            onNewNoteIn = onNewNoteIn,
-            onNewFolderIn = onNewFolderIn,
-            onRename = onRename,
-            onDelete = onDelete,
+            actions = actions,
         )
     }
 }
@@ -315,12 +328,8 @@ private fun LazyListScope.renderTree(
     expanded: Set<String>,
     openFile: File?,
     rowBackground: androidx.compose.ui.graphics.Color,
-    onToggleFolder: (String) -> Unit,
-    onOpenNote: (File) -> Unit,
-    onNewNoteIn: (File) -> Unit,
-    onNewFolderIn: (File) -> Unit,
-    onRename: (NoteNode) -> Unit,
-    onDelete: (NoteNode) -> Unit,
+    actions: TreeActions,
+    selection: TreeSelection?,
 ) {
     nodes.forEach { node ->
         val path = node.file.absolutePath
@@ -329,22 +338,26 @@ private fun LazyListScope.renderTree(
             TreeRow(
                 node = node,
                 depth = depth,
-                isOpen = node.file == openFile,
+                isOpen = openFile?.absolutePath == path,
                 isExpanded = isExpanded,
                 rowBackground = rowBackground,
+                isLocked = actions.isLocked(node),
+                selecting = selection != null,
+                isSelected = selection?.paths?.contains(path) == true,
                 onClick = {
-                    if (node.isFolder) onToggleFolder(path) else onOpenNote(node.file)
+                    when {
+                        selection != null -> actions.onToggleSelected(node)
+                        node.isFolder -> actions.onToggleFolder(path)
+                        else -> actions.onOpenNote(node.file)
+                    }
                 },
-                onNewNoteIn = onNewNoteIn,
-                onNewFolderIn = onNewFolderIn,
-                onRename = onRename,
-                onDelete = onDelete,
+                actions = actions,
             )
         }
         if (node.isFolder && isExpanded) {
             renderTree(
                 node.children, depth + 1, expanded, openFile, rowBackground,
-                onToggleFolder, onOpenNote, onNewNoteIn, onNewFolderIn, onRename, onDelete,
+                actions, selection,
             )
         }
     }
@@ -358,11 +371,11 @@ private fun TreeRow(
     isOpen: Boolean,
     isExpanded: Boolean,
     rowBackground: androidx.compose.ui.graphics.Color,
+    isLocked: Boolean,
+    selecting: Boolean,
+    isSelected: Boolean,
     onClick: () -> Unit,
-    onNewNoteIn: (File) -> Unit,
-    onNewFolderIn: (File) -> Unit,
-    onRename: (NoteNode) -> Unit,
-    onDelete: (NoteNode) -> Unit,
+    actions: TreeActions,
 ) {
     var menu by remember { mutableStateOf(false) }
 
@@ -371,8 +384,19 @@ private fun TreeRow(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .background(if (isOpen) Slate.Divider.copy(alpha = 0.35f) else rowBackground)
-                .combinedClickable(onClick = onClick, onLongClick = { menu = true })
+                .background(
+                    when {
+                        isSelected -> Slate.Accent.copy(alpha = 0.20f)
+                        isOpen -> Slate.Divider.copy(alpha = 0.35f)
+                        else -> rowBackground
+                    }
+                )
+                .combinedClickable(
+                    onClick = onClick,
+                    // While selecting, a long press would be ambiguous, so the
+                    // menu is only offered in normal mode.
+                    onLongClick = { if (!selecting) menu = true },
+                )
                 .padding(
                     start = (12 + depth * 14).dp,
                     end = 10.dp,
@@ -380,6 +404,16 @@ private fun TreeRow(
                     bottom = 10.dp
                 )
         ) {
+            if (selecting) {
+                Icon(
+                    if (isSelected) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+                    if (isSelected) "Selected" else "Not selected",
+                    tint = if (isSelected) Slate.Accent else Slate.Muted,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(9.dp))
+            }
+
             Icon(
                 imageVector = when {
                     node.isFolder && isExpanded -> Icons.Filled.FolderOpen
@@ -397,27 +431,55 @@ private fun TreeRow(
                 fontSize = 14.sp,
                 fontWeight = if (isOpen) FontWeight.SemiBold else FontWeight.Normal,
                 maxLines = 1,
+                modifier = Modifier.weight(1f, fill = false),
             )
+            if (isLocked) {
+                Spacer(Modifier.width(7.dp))
+                Icon(
+                    Icons.Filled.Lock, "Locked",
+                    tint = Slate.Muted,
+                    modifier = Modifier.size(13.dp),
+                )
+            }
         }
 
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             if (node.isFolder) {
                 DropdownMenuItem(
                     text = { Text("New note here", fontSize = 14.sp) },
-                    onClick = { menu = false; onNewNoteIn(node.file) },
+                    onClick = { menu = false; actions.onNewNoteIn(node.file) },
                 )
                 DropdownMenuItem(
                     text = { Text("New subfolder", fontSize = 14.sp) },
-                    onClick = { menu = false; onNewFolderIn(node.file) },
+                    onClick = { menu = false; actions.onNewFolderIn(node.file) },
                 )
             }
             DropdownMenuItem(
                 text = { Text("Rename", fontSize = 14.sp) },
-                onClick = { menu = false; onRename(node) },
+                onClick = { menu = false; actions.onRename(node) },
+            )
+            DropdownMenuItem(
+                text = { Text("Move to...", fontSize = 14.sp) },
+                onClick = { menu = false; actions.onMove(node) },
+            )
+            if (!node.isFolder) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            if (isLocked) "Unlock" else "Lock (prevent delete)",
+                            fontSize = 14.sp,
+                        )
+                    },
+                    onClick = { menu = false; actions.onToggleLock(node) },
+                )
+            }
+            DropdownMenuItem(
+                text = { Text("Select", fontSize = 14.sp) },
+                onClick = { menu = false; actions.onStartSelection(node) },
             )
             DropdownMenuItem(
                 text = { Text("Delete", fontSize = 14.sp, color = Slate.Danger) },
-                onClick = { menu = false; onDelete(node) },
+                onClick = { menu = false; actions.onDelete(node) },
             )
         }
     }
