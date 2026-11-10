@@ -8,3 +8,6 @@ captures/
 *.jks
 *.keystore
 dist/
+
+# Update zips dropped into the project folder must never be committed
+*.zip

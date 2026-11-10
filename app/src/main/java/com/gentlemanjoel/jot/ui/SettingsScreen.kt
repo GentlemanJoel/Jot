@@ -236,7 +236,6 @@ fun SettingsScreen(
             }
 
             CollapsibleSection(
-<<<<<<< HEAD
                 title = "Reopening the app",
                 expanded = open.contains("resume"),
                 onToggle = { toggle("resume") },
@@ -308,8 +307,6 @@ fun SettingsScreen(
             }
 
             CollapsibleSection(
-=======
->>>>>>> a6bbff61723ab3c4a8ec3d5bd781792b94949a98
                 title = "Notes folder",
                 expanded = open.contains("folder"),
                 onToggle = { toggle("folder") },
