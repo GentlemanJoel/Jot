@@ -5,8 +5,13 @@ plugins {
 }
 
 // ---- Version lives here. Bump both for every release. ----
-val jotVersionName = "0.5.4"
-val jotVersionCode = 10
+<<<<<<< HEAD
+val jotVersionName = "0.5.5"
+val jotVersionCode = 11
+=======
+val jotVersionName = "0.5.5"
+val jotVersionCode = 11
+>>>>>>> a6bbff61723ab3c4a8ec3d5bd781792b94949a98
 // ----------------------------------------------------------
 
 val keystorePath: String? = System.getenv("JOT_KEYSTORE")?.takeIf { it.isNotBlank() }

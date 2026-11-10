@@ -2,15 +2,23 @@
 
 **Version 0.5.3**
 
+<<<<<<< HEAD
 > This version contains **both** Batch 1 (cosmetics) and Batch 2 (editor
 > behavior). The earlier Batch-1-only zip was never pushed, so the repo went
 > straight from 0.5.2 to 0.5.3 carrying both.
 
+=======
+>>>>>>> a6bbff61723ab3c4a8ec3d5bd781792b94949a98
 ---
 
 ## What changed in this version
 
+<<<<<<< HEAD
 ### Batch 1 — cosmetics and layout
+=======
+Batch 1 of the November update set — cosmetics and layout only. No behavior
+changes, no new permissions, no new dependencies.
+>>>>>>> a6bbff61723ab3c4a8ec3d5bd781792b94949a98
 
 | # | Change | Files |
 |---|---|---|
@@ -18,6 +26,7 @@
 | 2 | Note title placeholder reads "Title" instead of "Title (optional)" | `JotApp.kt` |
 | 3 | Pin panel header shows the pin icon only; the word "PINNED" is gone | `PinnedPanel.kt` |
 | 6 | Title and "Start typing..." placeholders are dimmer, using a new `Slate.Placeholder` token | `Theme.kt`, `JotApp.kt` |
+<<<<<<< HEAD
 | 10 | Settings is now collapsible sections | `SettingsScreen.kt` |
 | — | The gold folder icon in the editor menu bar is now a muted outline folder | `JotApp.kt` |
 
@@ -72,11 +81,43 @@ default.
 ### `Slate.Placeholder`
 `#5E6B77`, noticeably dimmer than `Slate.Muted` (`#8FA3B8`). Used only for
 empty-field hint text, so labels and secondary copy are untouched.
+=======
+| 10 | Settings is now five collapsible sections: Pin panel, New note button, Notes folder, GitHub token, Updates | `SettingsScreen.kt` |
+| — | The gold folder icon in the editor menu bar is now a muted outline folder, matching the other menu bar icons | `JotApp.kt` |
+
+### Notes on the implementation
+
+- **Status bar.** The previous build let the menu bar and pin panel colors
+  bleed up behind the system icons, which is why the strip was two different
+  greys. A black scrim is now drawn above everything at the very top, and
+  `themes.xml` sets the window's status bar color to black so there's no
+  colored flash during launch.
+- **Settings sections** all start collapsed. Say the word if you'd rather
+  have Pin panel open by default.
+- **`Slate.Placeholder`** is `#5E6B77`, noticeably dimmer than `Slate.Muted`
+  (`#8FA3B8`). It is used only for empty-field hint text, so label text and
+  secondary copy are untouched.
+>>>>>>> a6bbff61723ab3c4a8ec3d5bd781792b94949a98
 
 ---
 
 ## Open backlog
 
+<<<<<<< HEAD
+=======
+### Batch 2 — behavior (next)
+
+| # | Item | Decision taken |
+|---|---|---|
+| 4 | Open the keyboard and place the cursor two lines below the last text when an existing note opens | Cursor is positioned visually; the blank lines are **not** written to the `.md` file until you actually type |
+| 5 | Small `+` button beside the Done button; Done becomes a checkmark only | Layout to be proposed |
+| 8 | Reopening the app lands on a new note | Implemented as a **setting with a time threshold**, not a hard default |
+
+> **Check these two when Batch 2 lands.** See `Jot-Batch2-Testing.md` for
+> what the rejected alternatives would have done differently, so you can tell
+> whether the chosen behavior is actually the one you want.
+
+>>>>>>> a6bbff61723ab3c4a8ec3d5bd781792b94949a98
 ### Batch 3 — experimental
 
 | # | Item |
@@ -120,15 +161,22 @@ None currently open.
 | **Pin tile** | A single item inside the pin panel |
 | **Editor** | The screen shown when a note is open |
 | **Format bar** | The scrolling row of markdown buttons above the action bar |
+<<<<<<< HEAD
 | **Action bar** | The bottom strip of the editor: Format, Read, version, `+`, checkmark |
+=======
+| **Action bar** | The bottom strip of the editor: Format, version number, Done |
+>>>>>>> a6bbff61723ab3c4a8ec3d5bd781792b94949a98
 
 ### Standing rules
 
 - Notes are plain `.md` files in a normal folder, synced to the PC by
   Syncthing. **Any feature that would require non-markdown data in the file is
   rejected** — this rules out per-word font colors and per-note font families.
+<<<<<<< HEAD
 - **Viewing a note must never modify it.** Any feature that adds text to the
   editor on open has to strip it again on save unless the user typed.
+=======
+>>>>>>> a6bbff61723ab3c4a8ec3d5bd781792b94949a98
 - Styling follows the Sagan Slate palette. Color tokens live in `Theme.kt`;
   never hardcode a hex value in a composable.
 - The version number is shown in the editor action bar and at the bottom of
