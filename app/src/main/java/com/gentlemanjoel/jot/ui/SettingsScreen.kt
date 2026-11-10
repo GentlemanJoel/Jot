@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -369,25 +370,38 @@ fun SettingsScreen(
 
             }
 
-            CollapsibleSection(
-                title = "Updates",
-                expanded = open.contains("updates"),
-                onToggle = { toggle("updates") },
+            // Version, with a small update check sitting right beside it.
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 14.dp, bottom = 30.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-            Button(
-                onClick = onCheckUpdate,
-                colors = ButtonDefaults.buttonColors(containerColor = Slate.Secondary),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-            ) { Text("Check for updates", fontSize = 14.sp, color = Slate.Text) }
+                Text(
+                    "Jot v${BuildConfig.VERSION_NAME}",
+                    color = Slate.Muted,
+                    fontSize = 12.sp,
+                )
+                Spacer(Modifier.width(10.dp))
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(1.dp, Slate.Divider, RoundedCornerShape(8.dp))
+                        .clickable { onCheckUpdate() }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Filled.Refresh, null,
+                            tint = Slate.Accent,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Spacer(Modifier.width(5.dp))
+                        Text("Check for updates", color = Slate.Accent, fontSize = 12.sp)
+                    }
+                }
             }
-
-            Text(
-                "Jot v${BuildConfig.VERSION_NAME}",
-                color = Slate.Muted,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(top = 14.dp, bottom = 30.dp),
-            )
         }
     }
 }

@@ -1,8 +1,10 @@
 package com.gentlemanjoel.jot.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +34,8 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -57,9 +61,9 @@ import com.gentlemanjoel.jot.Prefs
 /**
  * The fixed panel of pinned notes on the home screen.
  *
- * Normal mode is one-tap access. The pencil toggles edit mode, where tapping a
- * pin opens its editor - that keeps every control reachable even when the
- * panel is only wide enough for the icon itself.
+ * Tap a pin to open it; press and hold for its menu (icon, color, order,
+ * unpin). There is no separate edit mode, so nothing needs room in the
+ * header and the panel can shrink to a bare icon strip.
  *
  * [bottomReserve] is the vertical space the floating new-note button occupies
  * over this panel, kept clear so no pin can hide behind it.
@@ -76,8 +80,6 @@ fun PinnedPanel(
     onUnpin: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var editing by remember { mutableStateOf(false) }
-    var editingPin by remember { mutableStateOf<String?>(null) }
     var iconPickerFor by remember { mutableStateOf<String?>(null) }
     var colorPickerFor by remember { mutableStateOf<String?>(null) }
 
@@ -90,44 +92,20 @@ fun PinnedPanel(
             .background(Slate.Secondary)
     ) {
         // ---------------- header ----------------
-        if (compact) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp, bottom = 4.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                IconButton(onClick = { editing = !editing }, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                        if (editing) Icons.Filled.Check else Icons.Filled.Edit,
-                        if (editing) "Done editing" else "Edit pins",
-                        tint = if (editing) Slate.Accent else Slate.Muted,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-            }
-        } else {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 14.dp, end = 4.dp, top = 12.dp, bottom = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    Icons.Filled.PushPin, "Pinned notes",
-                    tint = Slate.Sun,
-                    modifier = Modifier.size(15.dp),
-                )
-                Spacer(Modifier.weight(1f))
-                IconButton(onClick = { editing = !editing }, modifier = Modifier.size(34.dp)) {
-                    Icon(
-                        if (editing) Icons.Filled.Check else Icons.Filled.Edit,
-                        if (editing) "Done editing" else "Edit pins",
-                        tint = if (editing) Slate.Accent else Slate.Muted,
-                        modifier = Modifier.size(17.dp),
-                    )
-                }
-            }
+        // Exactly as tall as the menu bar's content row (6 + 44 + 6 dp), at
+        // every panel width, so the divider below it always meets the bottom
+        // edge of the menu bar instead of drifting up when the panel narrows.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(PIN_HEADER_HEIGHT),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Filled.PushPin, "Pinned notes",
+                tint = Slate.Sun,
+                modifier = Modifier.size(if (compact) 17.dp else 18.dp),
+            )
         }
 
         Box(
@@ -169,10 +147,14 @@ fun PinnedPanel(
                             pin = pin,
                             compact = compact,
                             panelWidthDp = width.widthDp,
-                            editing = editing,
-                            onClick = {
-                                if (editing) editingPin = pin.path else onOpen(pin.path)
-                            },
+                            isFirst = pins.first().path == pin.path,
+                            isLast = pins.last().path == pin.path,
+                            onClick = { onOpen(pin.path) },
+                            onUp = { onMove(pin.path, -1) },
+                            onDown = { onMove(pin.path, 1) },
+                            onIcon = { iconPickerFor = pin.path },
+                            onColor = { colorPickerFor = pin.path },
+                            onUnpin = { onUnpin(pin.path) },
                         )
                     }
                 }
@@ -192,26 +174,6 @@ fun PinnedPanel(
                     )
                 }
             }
-        }
-    }
-
-    // ---------------- per-pin editor ----------------
-    editingPin?.let { path ->
-        val pin = pins.firstOrNull { it.path == path }
-        if (pin == null) {
-            editingPin = null
-        } else {
-            PinEditorDialog(
-                pin = pin,
-                isFirst = pins.first().path == path,
-                isLast = pins.last().path == path,
-                onUp = { onMove(path, -1) },
-                onDown = { onMove(path, 1) },
-                onIcon = { iconPickerFor = path },
-                onColor = { colorPickerFor = path },
-                onUnpin = { onUnpin(path); editingPin = null },
-                onDismiss = { editingPin = null },
-            )
         }
     }
 
@@ -241,15 +203,61 @@ fun PinnedPanel(
     }
 }
 
+/** Height of the pin panel's header; matches the menu bar's content row. */
+private val PIN_HEADER_HEIGHT = 56.dp
+
+/**
+ * One pin. Tap opens the note; press and hold opens the same kind of small
+ * menu notes and folders get, so every control stays reachable at any panel
+ * width without a separate edit mode.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PinRow(
     pin: Pin,
     compact: Boolean,
     panelWidthDp: Int,
-    editing: Boolean,
+    isFirst: Boolean,
+    isLast: Boolean,
     onClick: () -> Unit,
+    onUp: () -> Unit,
+    onDown: () -> Unit,
+    onIcon: () -> Unit,
+    onColor: () -> Unit,
+    onUnpin: () -> Unit,
 ) {
     val tint = colorFor(pin.color)
+    var menu by remember { mutableStateOf(false) }
+
+    @Composable
+    fun PinMenu() {
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(
+                text = { Text("Change icon", fontSize = 14.sp) },
+                onClick = { menu = false; onIcon() },
+            )
+            DropdownMenuItem(
+                text = { Text("Change color", fontSize = 14.sp) },
+                onClick = { menu = false; onColor() },
+            )
+            if (!isFirst) {
+                DropdownMenuItem(
+                    text = { Text("Move up", fontSize = 14.sp) },
+                    onClick = { menu = false; onUp() },
+                )
+            }
+            if (!isLast) {
+                DropdownMenuItem(
+                    text = { Text("Move down", fontSize = 14.sp) },
+                    onClick = { menu = false; onDown() },
+                )
+            }
+            DropdownMenuItem(
+                text = { Text("Unpin", fontSize = 14.sp, color = Slate.Danger) },
+                onClick = { menu = false; onUnpin() },
+            )
+        }
+    }
 
     if (compact) {
         // The tile grows with the panel so a 48dp strip and a 104dp strip
@@ -258,31 +266,29 @@ private fun PinRow(
         val glyph = (box * 0.55f).coerceIn(16f, 26f)
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable { onClick() }
-                    .padding(vertical = 7.dp),
-                contentAlignment = Alignment.Center,
-            ) {
+            Box {
                 Box(
                     Modifier
-                        .size(box.dp)
-                        .clip(RoundedCornerShape((box * 0.28f).dp))
-                        .background(tint.copy(alpha = if (editing) 0.30f else 0.16f))
-                        .then(
-                            if (editing) Modifier.border(
-                                1.dp, tint, RoundedCornerShape((box * 0.28f).dp)
-                            ) else Modifier
-                        ),
+                        .fillMaxWidth()
+                        .combinedClickable(onClick = onClick, onLongClick = { menu = true })
+                        .padding(vertical = 7.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        iconFor(pin.icon), pin.displayName,
-                        tint = tint,
-                        modifier = Modifier.size(glyph.dp),
-                    )
+                    Box(
+                        Modifier
+                            .size(box.dp)
+                            .clip(RoundedCornerShape((box * 0.28f).dp))
+                            .background(tint.copy(alpha = 0.16f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            iconFor(pin.icon), pin.displayName,
+                            tint = tint,
+                            modifier = Modifier.size(glyph.dp),
+                        )
+                    }
                 }
+                PinMenu()
             }
             Box(
                 Modifier
@@ -293,41 +299,37 @@ private fun PinRow(
         }
     } else {
         Column {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onClick() }
-                    .padding(start = 12.dp, end = 10.dp, top = 12.dp, bottom = 12.dp)
-            ) {
-                Box(
-                    Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(tint.copy(alpha = if (editing) 0.30f else 0.16f)),
-                    contentAlignment = Alignment.Center,
+            Box {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .combinedClickable(onClick = onClick, onLongClick = { menu = true })
+                        .padding(start = 12.dp, end = 10.dp, top = 12.dp, bottom = 12.dp)
                 ) {
-                    Icon(
-                        iconFor(pin.icon), null,
-                        tint = tint,
-                        modifier = Modifier.size(18.dp),
+                    Box(
+                        Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(tint.copy(alpha = 0.16f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            iconFor(pin.icon), null,
+                            tint = tint,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(11.dp))
+                    Text(
+                        pin.displayName,
+                        color = Slate.Text,
+                        fontSize = 14.sp,
+                        maxLines = 2,
+                        modifier = Modifier.weight(1f),
                     )
                 }
-                Spacer(Modifier.width(11.dp))
-                Text(
-                    pin.displayName,
-                    color = Slate.Text,
-                    fontSize = 14.sp,
-                    maxLines = 2,
-                    modifier = Modifier.weight(1f),
-                )
-                if (editing) {
-                    Icon(
-                        Icons.Filled.Edit, "Edit pin",
-                        tint = Slate.Muted,
-                        modifier = Modifier.size(15.dp),
-                    )
-                }
+                PinMenu()
             }
             Box(
                 Modifier
@@ -337,92 +339,6 @@ private fun PinRow(
             )
         }
     }
-}
-
-/** Everything you can do to one pin, in a dialog so it works at any panel width. */
-@Composable
-private fun PinEditorDialog(
-    pin: Pin,
-    isFirst: Boolean,
-    isLast: Boolean,
-    onUp: () -> Unit,
-    onDown: () -> Unit,
-    onIcon: () -> Unit,
-    onColor: () -> Unit,
-    onUnpin: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val tint = colorFor(pin.color)
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Slate.Secondary,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(tint.copy(alpha = 0.16f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(iconFor(pin.icon), null, tint = tint, modifier = Modifier.size(18.dp))
-                }
-                Spacer(Modifier.width(10.dp))
-                Text(pin.displayName, color = Slate.Text, fontSize = 16.sp, maxLines = 2)
-            }
-        },
-        text = {
-            Column {
-                Text("ORDER", color = Slate.Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                Row(Modifier.padding(top = 6.dp, bottom = 14.dp)) {
-                    TextButton(onClick = onUp, enabled = !isFirst) {
-                        Icon(
-                            Icons.Filled.KeyboardArrowUp, null,
-                            tint = if (isFirst) Slate.Divider else Slate.Accent,
-                            modifier = Modifier.size(19.dp),
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text("Up", color = if (isFirst) Slate.Divider else Slate.Accent, fontSize = 14.sp)
-                    }
-                    Spacer(Modifier.width(6.dp))
-                    TextButton(onClick = onDown, enabled = !isLast) {
-                        Icon(
-                            Icons.Filled.KeyboardArrowDown, null,
-                            tint = if (isLast) Slate.Divider else Slate.Accent,
-                            modifier = Modifier.size(19.dp),
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text("Down", color = if (isLast) Slate.Divider else Slate.Accent, fontSize = 14.sp)
-                    }
-                }
-
-                Text("APPEARANCE", color = Slate.Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                Row(Modifier.padding(top = 6.dp, bottom = 10.dp)) {
-                    TextButton(onClick = onIcon) {
-                        Icon(iconFor(pin.icon), null, tint = Slate.Text, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Icon", color = Slate.Text, fontSize = 14.sp)
-                    }
-                    Spacer(Modifier.width(6.dp))
-                    TextButton(onClick = onColor) {
-                        Icon(Icons.Filled.Palette, null, tint = tint, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Color", color = Slate.Text, fontSize = 14.sp)
-                    }
-                }
-
-                TextButton(onClick = onUnpin) {
-                    Icon(Icons.Filled.Close, null, tint = Slate.Danger, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Unpin this note", color = Slate.Danger, fontSize = 14.sp)
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Done", color = Slate.Accent) }
-        },
-    )
 }
 
 @Composable

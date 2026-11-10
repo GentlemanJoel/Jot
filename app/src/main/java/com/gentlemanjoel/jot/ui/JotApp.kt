@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -68,6 +69,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -111,6 +116,27 @@ fun JotApp() {
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val bodyFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val hostView = LocalView.current
+
+    // Focusing the body field does not reliably raise the keyboard on its
+    // own, especially right after a screen swap. Ask for focus, then ask for
+    // the keyboard explicitly, and repeat once or twice in case the field
+    // hadn't finished composing yet. Showing an already-open keyboard is a no-op.
+    fun raiseKeyboard() {
+        scope.launch {
+            delay(90)
+            repeat(3) {
+                runCatching { bodyFocus.requestFocus() }
+                keyboard?.show()
+                runCatching {
+                    ViewCompat.getWindowInsetsController(hostView)
+                        ?.show(WindowInsetsCompat.Type.ime())
+                }
+                delay(130)
+            }
+        }
+    }
 
     var screen by remember { mutableStateOf(Screen.EDITOR) }
     var tree by remember { mutableStateOf(NoteStore.loadTree()) }
@@ -176,11 +202,8 @@ fun JotApp() {
         readMode = false
         showToolbar = false
         screen = Screen.EDITOR
-        scope.launch {
-            drawerState.close()
-            delay(80)
-            runCatching { bodyFocus.requestFocus() }
-        }
+        scope.launch { drawerState.close() }
+        raiseKeyboard()
     }
 
     fun openNote(file: File) {
@@ -197,11 +220,8 @@ fun JotApp() {
         readMode = false
         showToolbar = false
         screen = Screen.EDITOR
-        scope.launch {
-            drawerState.close()
-            delay(80)
-            runCatching { bodyFocus.requestFocus() }
-        }
+        scope.launch { drawerState.close() }
+        raiseKeyboard()
     }
 
     fun goHome() {
@@ -213,8 +233,7 @@ fun JotApp() {
     LaunchedEffect(Unit) {
         NoteStore.ensureRoot()
         refresh()
-        delay(140)
-        runCatching { bodyFocus.requestFocus() }
+        raiseKeyboard()
     }
 
     // Debounced autosave while typing.
@@ -289,6 +308,9 @@ fun JotApp() {
                 drawerContainerColor = Slate.Secondary,
                 modifier = Modifier.width(300.dp),
             ) {
+                // imePadding shrinks the list to the space above the keyboard,
+                // so the bottom of the tree stays scrollable while typing.
+                Box(Modifier.fillMaxSize().imePadding()) {
                 DrawerTree(
                     tree = tree,
                     openFile = currentFile,
@@ -302,6 +324,16 @@ fun JotApp() {
                     onRename = { dialog = DialogState.Rename(it) },
                     onDelete = { dialog = DialogState.Delete(it) },
                 )
+
+                // A clear edge so the panel reads as sitting on top of the screen.
+                Box(
+                    Modifier
+                        .align(Alignment.CenterEnd)
+                        .width(1.5.dp)
+                        .fillMaxHeight()
+                        .background(Slate.Muted.copy(alpha = 0.55f))
+                )
+                }
             }
         },
     ) {
@@ -378,7 +410,7 @@ fun JotApp() {
                 },
                 onEnterEdit = {
                     readMode = false
-                    scope.launch { delay(60); runCatching { bodyFocus.requestFocus() } }
+                    raiseKeyboard()
                 },
                 onToggleLine = { lineIndex ->
                     val updated = toggleCheckboxAt(body.text, lineIndex)
@@ -829,7 +861,7 @@ private fun EditorScreen(
                 .fillMaxWidth()
                 .background(Slate.Secondary)
                 .navigationBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (readMode) {
@@ -868,7 +900,7 @@ private fun EditorScreen(
                 shape = androidx.compose.foundation.shape.CircleShape,
                 elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
                 modifier = Modifier
-                    .size(38.dp)
+                    .size(40.dp)
                     .border(1.dp, Slate.Divider, androidx.compose.foundation.shape.CircleShape),
             ) {
                 Icon(Icons.Filled.Add, "New note", modifier = Modifier.size(20.dp))
@@ -880,10 +912,10 @@ private fun EditorScreen(
                 onClick = onDone,
                 containerColor = Slate.Accent,
                 contentColor = Slate.Secondary,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.size(50.dp),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.size(44.dp),
             ) {
-                Icon(Icons.Filled.Check, "Done", modifier = Modifier.size(24.dp))
+                Icon(Icons.Filled.Check, "Done", modifier = Modifier.size(23.dp))
             }
         }
     }

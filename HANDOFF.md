@@ -1,112 +1,94 @@
 # Jot — Handoff
 
-**Next release: 0.5.6** (build file currently reads 0.5.5; RepoMate bumps it on push)
-
-> This version contains **both** Batch 1 (cosmetics) and Batch 2 (editor
-> behavior).
->
-> **Repair note:** releases 0.5.3-0.5.5 on GitHub failed to build because a
-> git merge left conflict markers (`<<<<<<<`) in `app/build.gradle.kts` and
-> `SettingsScreen.kt`, and a stray `Jot-v0.5.3-batches1-2.zip` got committed.
-> This package has both files clean and `.gitignore` now blocks `*.zip`.
+**Released: 0.5.6 · This package (Session 1) becomes 0.5.7** — RepoMate bumps
+the version on push, so `build.gradle.kts` is deliberately not in the zip.
 
 ---
 
-## What changed in this version
-
-### Batch 1 — cosmetics and layout
+## What changed in this version — Session 1 (fix pass)
 
 | # | Change | Files |
 |---|---|---|
-| 1 | Status bar is now solid black, separating the system clock/battery row from the app | `MainActivity.kt`, `themes.xml` |
-| 2 | Note title placeholder reads "Title" instead of "Title (optional)" | `JotApp.kt` |
-| 3 | Pin panel header shows the pin icon only; the word "PINNED" is gone | `PinnedPanel.kt` |
-| 6 | Title and "Start typing..." placeholders are dimmer, using a new `Slate.Placeholder` token | `Theme.kt`, `JotApp.kt` |
-| 10 | Settings is now collapsible sections | `SettingsScreen.kt` |
-| — | The gold folder icon in the editor menu bar is now a muted outline folder | `JotApp.kt` |
+| 17 | **Keyboard now raised explicitly** when a note opens, a new note starts, or Edit is tapped. Focusing the field alone did not reliably raise it. The helper `raiseKeyboard()` asks for focus, then asks for the keyboard, and retries twice. | `JotApp.kt` |
+| 11 | **Pin panel header is a fixed 56dp**, equal to the menu bar's content row, at every width. The divider no longer rises when the panel narrows. | `PinnedPanel.kt` |
+| 1 | **Pencil/edit icon removed from the pin panel.** The header is only the pin icon. Press and hold a pin for its menu: Change icon, Change color, Move up, Move down, Unpin. The old edit mode and its dialog are gone. | `PinnedPanel.kt` |
+| 12 | **Updates section removed from Settings.** A small "Check for updates" button now sits beside the version number at the bottom. | `SettingsScreen.kt` |
+| 18 | **Slide-out note panel has a 1.5dp border** on its right edge. | `JotApp.kt` |
+| 19 | **Slide-out note panel stays scrollable with the keyboard open** (`imePadding`). | `JotApp.kt` |
+| 21 | **Action bar is shorter**: vertical padding 8dp to 4dp, checkmark 50dp to 44dp, `+` 38dp to 40dp. Bar is about 14dp shorter, tap targets stay at 40dp or more. | `JotApp.kt` |
 
-### Batch 2 — editor behavior
+### Not done in Session 1, on purpose
+- The setting to turn auto-keyboard on or off is **Session 4**.
+- Nothing was compiled here (no Android SDK in the sandbox). Brace balance and
+  imports were checked statically. If the build fails, the error log names the
+  file and line.
 
-| # | Change | Files |
-|---|---|---|
-| 4 | Opening an existing note goes straight to edit mode, keyboard up, caret a blank line below the existing text | `JotApp.kt` |
-| 5 | Action bar: Done is now a checkmark-only button, with a smaller outlined `+` to its left that saves and starts a new note | `JotApp.kt` |
-| 8 | New "Reopening the app" setting: start a fresh note when returning after a chosen time away | `Prefs.kt`, `SettingsScreen.kt`, `JotApp.kt` |
-| — | New **Read** button in the editor action bar, added to keep read mode reachable (see below) | `JotApp.kt` |
-
----
-
-## Notes on the implementation
-
-### Status bar
-The previous build let the menu bar and pin panel colors bleed up behind the
-system icons, which is why the strip was two different greys. A black scrim is
-now drawn above everything at the very top, and `themes.xml` sets the window's
-status bar color to black so there's no colored flash during launch.
-
-### Caret padding without file churn (item 4)
-Opening a note displays its text plus two newlines, with the caret at the end.
-Those newlines are **display-only**. `bodyForSave()` compares the live body
-against `padFor(padBase)` and, if they still match, saves the original text
-instead. Type one character and the comparison fails, so the blank line is
-kept as real content. Net effect: viewing a note never rewrites it, so
-Syncthing stays quiet and modified-dates don't move.
-
-### Read mode had to stay reachable
-Item 4 required existing notes to open in edit mode. Previously `readMode` was
-set to true **only** in `openNote`, and nothing else ever set it back — so
-flipping that one line would have made `ReadView` permanently unreachable,
-silently killing rendered markdown and tap-to-toggle checkboxes.
-
-A **Read** button was added to the editor action bar beside Format. This was
-not requested; it was added to avoid deleting a working feature by side effect.
-Say the word if you'd rather it go.
-
-### Reopen behavior (item 8)
-Implemented as a Settings toggle, **off by default**, with a threshold picker
-(1, 2, 5, 15 min or 1 hr; default 2 min). The existing `ON_PAUSE` lifecycle
-observer now also records the time, and `ON_RESUME` starts a new note only if
-the toggle is on and you were away at least that long. A cold start leaves the
-timestamp at zero, so the check can't fire on first launch.
-
-### Settings sections
-All start collapsed. Say the word if you'd rather have Pin panel open by
-default.
-
-### `Slate.Placeholder`
-`#5E6B77`, noticeably dimmer than `Slate.Muted` (`#8FA3B8`). Used only for
-empty-field hint text, so labels and secondary copy are untouched.
+### Verify on the phone
+1. Open an existing note from Home: keyboard comes up, caret one blank line down.
+2. Open one from the pin panel and from the slide-out panel: same.
+3. Narrow the pin panel in Settings: divider still meets the bottom of the menu bar.
+4. Press and hold a pin: menu appears; each entry works.
+5. In a note, open the slide-out panel, raise the keyboard, scroll to the bottom of the list.
+6. Settings bottom: version with a small update button beside it; no Updates section.
 
 ---
 
-## Open backlog
+## Previously shipped (0.5.3 to 0.5.6)
 
-### Batch 3 — experimental
+- Solid black status bar; "Title" placeholder; dimmer placeholders (`Slate.Placeholder` `#5E6B77`).
+- Collapsible Settings sections, all collapsed by default.
+- Opening an existing note: edit mode, caret a blank line below the text. The
+  padding is **display-only** (`padFor` / `bodyForSave`), so viewing a note
+  never rewrites it.
+- Action bar: Format, Read, version, small `+` (saves and starts a new note), checkmark.
+- Setting "Reopening the app": new note after N minutes away (off by default).
+- Muted outline folder icon in the editor menu bar.
 
-| # | Item |
-|---|---|
-| 9 | Pin panel swipe gestures: swipe right to collapse to a toggle, swipe left for fullscreen, swipe right from fullscreen back to default |
+---
 
-### Batch 4 — restyle
+## Open backlog — session plan
 
-| # | Item |
-|---|---|
-| 7 | Radix-inspired icon set, replacing Material icons throughout |
+Run **strictly one session at a time**, testing each release on the phone
+before starting the next. Sessions all edit `JotApp.kt`; running them in
+parallel caused the conflict-marker build failures of November 2026.
+
+| Session | Model | Items | Status |
+|---|---|---|---|
+| S1 Fix pass | Sonnet | keyboard bug, pin header alignment, pin long-press menu, update button, drawer border, drawer IME, action bar height | **Delivered (this package)** |
+| S2 Data safety | **Opus** | Trash bin (`.trash`, ~30-day purge), lock a note from deletion, **Move to...** menu, mass delete (multi-select), delete from inside a note, folder-delete guards, designated folder for new notes | Next |
+| S3 Menu bar and editor | Sonnet | Fixed menu bar layout, drop Read button (auto read view when the keyboard closes, behind a setting), list auto-continue on open, undo/redo, pin panel beside a new note | Queued |
+| S4 Settings and launch | Sonnet | Where the app lands on open (new note / Home / a saved note), auto-keyboard toggle, merge reopen settings into one section, pin-panel-on-new-note toggle (default on) | Queued |
+| S5 Customization | Sonnet | Folder icons and colors with "apply to subfolders", larger icon library with tag search | Queued |
+| S6 Images | **Opus** | Attach/paste images (rated **High**; needs go-ahead; after S2) | Queued |
+| S7 Gestures | **Opus** | Pin panel swipe: collapse, fullscreen, back to default | Queued |
+| S8 Restyle | **Opus** | Radix-inspired styling, last | Needs spec |
+
+### Design decisions already made (user approved defaults pending)
+- **Menu bar:** settings, folder, search on the left; logo centered; one contextual slot on the right (new folder on Home, note menu in the editor). On Home the folder icon collapses/expands all folders.
+- **Editor note menu (one icon):** pin, lock, move, delete.
+- **Pin panel on new notes:** shown on blank new notes, hidden on existing ones.
+- **Lock screen shortcut and Quick Settings tile always open a new note**, regardless of the "app lands on" setting.
+- **Trash only, no archive** (an archive is just a folder once Move to... exists).
+- **Keep the folder icon in the editor**: left-edge swipe collides with Android's back gesture.
+- **Radix icons only for the menu bar and action bar** (the set has about 320 icons); Material icons stay for the picker library.
+
+### Unanswered questions
+1. First line of the Nov 10 request, "numbered lists list bullet points": default reading is that numbered lists should auto-continue like bullet lists. Enter-continuation already exists in `continueListOnNewline`; the new item is continuing a list when a note is opened.
+2. Radix scope: which of colors, corner radii, spacing, icons to carry over.
+3. Whether rearranging notes also needs drag-and-drop (default: Move to... menu only).
 
 ### Unscheduled
-
-- Save individual notes and folders as home screen shortcuts
-- Voice-to-text button in the editor (Gboard's mic key may already cover this)
-- Expanded note formatting: draggable checkboxes, more heading levels, tables,
-  global font size and family
-- GitHub Actions workflow uses `setup-java@v4` and Node 20 actions, both
-  deprecated. Builds still pass.
+- Home screen shortcuts for notes and folders
+- Voice-to-text (try Gboard's mic key first)
+- Expanded formatting: draggable checkboxes, more heading levels, tables, global font size and family
+- Walkthrough: lock screen shortcut / edge swipe launch
+- GitHub workflow uses `setup-java@v4` and Node 20 actions (deprecated, builds still pass)
 
 ---
 
 ## Known bugs
 
-None currently open.
+None open after Session 1, pending phone verification.
 
 ---
 
@@ -116,36 +98,42 @@ None currently open.
 
 | Term | Meaning |
 |---|---|
-| **Status bar** | The Android system strip: time, battery, signal. Not part of the app, but the app colors it. |
-| **Menu bar** | The app's top bar: search icon, overflow menu, Jot wordmark, trailing action |
-| **Home screen** | The default view: note panel on the left, pin panel on the right |
+| **Status bar** | The Android system strip: time, battery, signal |
+| **Menu bar** | The app's top bar: icons and the Jot wordmark |
+| **Home screen** | Note panel on the left, pin panel on the right |
 | **Note panel** | The left panel containing the notes and folders tree |
-| **Pin panel** | The right-hand panel holding pinned notes |
-| **Pin tile** | A single item inside the pin panel |
+| **Pin panel** | The right-hand panel of pinned notes |
+| **Pin tile** | A single item in the pin panel |
 | **Editor** | The screen shown when a note is open |
 | **Format bar** | The scrolling row of markdown buttons above the action bar |
 | **Action bar** | The bottom strip of the editor: Format, Read, version, `+`, checkmark |
+| **Slide-out panel** | The note panel that slides over the editor |
 
 ### Standing rules
 
-- Notes are plain `.md` files in a normal folder, synced to the PC by
-  Syncthing. **Any feature that would require non-markdown data in the file is
-  rejected** — this rules out per-word font colors and per-note font families.
-- **Viewing a note must never modify it.** Any feature that adds text to the
-  editor on open has to strip it again on save unless the user typed.
-- Styling follows the Sagan Slate palette. Color tokens live in `Theme.kt`;
-  never hardcode a hex value in a composable.
-- The version number is shown in the editor action bar and at the bottom of
-  Settings, read from `BuildConfig.VERSION_NAME`.
-- `build.gradle.kts` version fields are bumped by RepoMate at push time.
-  Delivered zips must not contain `build.gradle.kts`, or the version
-  double-bumps.
-- Releases are built by GitHub Actions using the shared signing keystore at
+- Notes are plain `.md` files in a normal folder, synced by Syncthing. Anything
+  that would put non-markdown data into the file is rejected. Per-folder or
+  per-note app data (icons, colors, locks) lives in app preferences keyed by path.
+- **Viewing a note must never modify it.** Anything added to the editor on open
+  must be stripped on save unless the user typed.
+- Sagan Slate palette; color tokens live in `Theme.kt`, never hardcode hex in a composable.
+- Keep tap targets at 44dp or more where practical (user has limited hand mobility).
+- Version shown in the editor action bar and at the bottom of Settings.
+- `build.gradle.kts` is bumped by RepoMate at push time. Delivered update zips
+  must not contain it.
+- Releases are built by GitHub Actions with the shared keystore at
   `C:\Users\Joel\.androidkeys\shared-release.jks`.
+- `.gitignore` blocks `*.zip`.
 
-### Update workflow
+### Update workflow (PC or laptop)
 
-Extract the zip over the project folder choosing **Replace files in
-destination**. Choosing "Keep both" creates `_1` duplicate files, which breaks
-the build with a duplicate resource error. This cost three failed builds in
-November 2026.
+1. Close RepoMate.
+2. Extract the zip over `C:\Users\Joel\Documents\Jot` with PowerShell, which
+   overwrites without creating `_1` duplicates:
+   `Expand-Archive -Path "<zip path>" -DestinationPath "C:\Users\Joel\Documents\Jot" -Force`
+3. Check for strays (each should print nothing):
+   - `Get-ChildItem . -Recurse -File -Filter "*_1.*"`
+   - `Get-ChildItem . -Recurse -File | Select-String -Pattern "^<<<<<<<|^>>>>>>>"`
+4. `git pull` in the Jot folder (always, especially after using the other machine).
+5. RepoMate: Push update, Patch.
+6. If the build fails, copy the failing-build section from RepoMate's OUTPUT pane.
