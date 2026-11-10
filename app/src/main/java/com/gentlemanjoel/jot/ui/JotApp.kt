@@ -3,6 +3,7 @@ package com.gentlemanjoel.jot.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,7 +28,6 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.CreateNewFolder
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatListBulleted
@@ -36,13 +36,14 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Title
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -67,6 +68,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
@@ -91,6 +93,18 @@ import java.io.File
 
 private enum class Screen { HOME, EDITOR, SETTINGS }
 
+/**
+ * Opening a note drops the caret a blank line below whatever is already
+ * there, so you can just start typing. The two newlines are display-only
+ * until you actually type something — see [JotApp]'s bodyForSave — otherwise
+ * merely glancing at a note would rewrite it and Syncthing would carry that
+ * pointless edit to the PC.
+ */
+private fun padFor(text: String): String {
+    val base = text.trimEnd('\n')
+    return if (base.isEmpty()) "" else base + "\n\n"
+}
+
 @Composable
 fun JotApp() {
     val context = LocalContext.current
@@ -105,6 +119,8 @@ fun JotApp() {
     var panelWidth by remember { mutableStateOf(Prefs.panelWidth(context)) }
     var fabSize by remember { mutableStateOf(Prefs.fabSize(context)) }
     var searching by remember { mutableStateOf(false) }
+    var resumeNew by remember { mutableStateOf(Prefs.resumeNew(context)) }
+    var resumeMinutes by remember { mutableStateOf(Prefs.resumeMinutes(context)) }
 
     var currentFile by remember { mutableStateOf<File?>(null) }
     var currentDir by remember { mutableStateOf(NoteStore.ensureRoot()) }
@@ -113,13 +129,25 @@ fun JotApp() {
     var readMode by remember { mutableStateOf(false) }
     var showToolbar by remember { mutableStateOf(false) }
 
+    // The note's text exactly as it came off disk, whenever the caret
+    // padding is still untouched. Null once there is nothing to strip.
+    var padBase by remember { mutableStateOf<String?>(null) }
+
     var overflow by remember { mutableStateOf(false) }
     var dialog by remember { mutableStateOf<DialogState?>(null) }
     var status by remember { mutableStateOf<String?>(null) }
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
     var progress by remember { mutableStateOf(-1) }
 
-    fun draft() = Draft(currentFile, currentDir, title, body.text)
+    // If the body is still exactly "file contents + caret padding", save the
+    // file contents. Type one character and this falls through to body.text,
+    // which keeps the blank line the caret was sitting below.
+    fun bodyForSave(): String {
+        val base = padBase
+        return if (base != null && body.text == padFor(base)) base else body.text
+    }
+
+    fun draft() = Draft(currentFile, currentDir, title, bodyForSave())
 
     fun refresh() {
         tree = NoteStore.loadTree()
@@ -144,6 +172,7 @@ fun JotApp() {
         currentDir = dir
         title = ""
         body = TextFieldValue("")
+        padBase = null
         readMode = false
         showToolbar = false
         screen = Screen.EDITOR
@@ -160,11 +189,19 @@ fun JotApp() {
         currentFile = d.file
         currentDir = d.dir
         title = d.title
-        body = TextFieldValue(d.body)
-        readMode = true          // existing notes open readable + tappable
+        // Caret lands a blank line under the last of the existing text,
+        // keyboard up, ready to carry on writing.
+        padBase = d.body
+        val padded = padFor(d.body)
+        body = TextFieldValue(padded, selection = TextRange(padded.length))
+        readMode = false
         showToolbar = false
         screen = Screen.EDITOR
-        scope.launch { drawerState.close() }
+        scope.launch {
+            drawerState.close()
+            delay(80)
+            runCatching { bodyFocus.requestFocus() }
+        }
     }
 
     fun goHome() {
@@ -188,11 +225,28 @@ fun JotApp() {
         }
     }
 
-    // Save on backgrounding.
+    // Save on backgrounding, and optionally hand back a fresh note if the
+    // app has been out of sight long enough that you've moved on.
     val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, resumeNew, resumeMinutes) {
+        var leftAt = 0L
         val obs = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE) persist()
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> {
+                    persist()
+                    leftAt = System.currentTimeMillis()
+                }
+                Lifecycle.Event.ON_RESUME -> {
+                    // leftAt stays 0 on a cold start, which already opens a
+                    // blank note, so this only fires on a real return.
+                    val away = System.currentTimeMillis() - leftAt
+                    if (resumeNew && leftAt > 0L && away >= resumeMinutes * 60_000L) {
+                        searching = false
+                        newNote()
+                    }
+                }
+                else -> Unit
+            }
         }
         lifecycleOwner.lifecycle.addObserver(obs)
         onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
@@ -292,6 +346,16 @@ fun JotApp() {
                     Prefs.setFabSize(context, it)
                     fabSize = it
                 },
+                resumeNew = resumeNew,
+                onResumeNew = {
+                    Prefs.setResumeNew(context, it)
+                    resumeNew = it
+                },
+                resumeMinutes = resumeMinutes,
+                onResumeMinutes = {
+                    Prefs.setResumeMinutes(context, it)
+                    resumeMinutes = it
+                },
                 token = Prefs.token(context),
                 onToken = { Prefs.setToken(context, it) },
                 notesPath = NoteStore.root.absolutePath,
@@ -308,6 +372,10 @@ fun JotApp() {
                 },
                 bodyFocus = bodyFocus,
                 readMode = readMode,
+                onEnterRead = {
+                    persist()
+                    readMode = true
+                },
                 onEnterEdit = {
                     readMode = false
                     scope.launch { delay(60); runCatching { bodyFocus.requestFocus() } }
@@ -618,6 +686,7 @@ private fun EditorScreen(
     onBodyChange: (TextFieldValue) -> Unit,
     bodyFocus: FocusRequester,
     readMode: Boolean,
+    onEnterRead: () -> Unit,
     onEnterEdit: () -> Unit,
     onToggleLine: (Int) -> Unit,
     showToolbar: Boolean,
@@ -676,7 +745,7 @@ private fun EditorScreen(
             decorationBox = { inner ->
                 Box(Modifier.padding(horizontal = 18.dp, vertical = 12.dp)) {
                     if (title.isEmpty()) {
-                        Text("Title (optional)", color = Slate.Muted, fontSize = 19.sp)
+                        Text("Title", color = Slate.Placeholder, fontSize = 19.sp)
                     }
                     inner()
                 }
@@ -709,7 +778,7 @@ private fun EditorScreen(
                     decorationBox = { inner ->
                         Box(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
                             if (body.text.isEmpty()) {
-                                Text("Start typing...", color = Slate.Muted, fontSize = 16.sp)
+                                Text("Start typing...", color = Slate.Placeholder, fontSize = 16.sp)
                             }
                             inner()
                         }
@@ -770,10 +839,13 @@ private fun EditorScreen(
             } else {
                 TextButton(onClick = onToggleToolbar) {
                     Text(
-                        if (showToolbar) "Format" else "Format",
+                        "Format",
                         color = if (showToolbar) Slate.Accent else Slate.Muted,
                         fontSize = 14.sp,
                     )
+                }
+                TextButton(onClick = onEnterRead) {
+                    Text("Read", color = Slate.Muted, fontSize = 14.sp)
                 }
             }
 
@@ -783,19 +855,35 @@ private fun EditorScreen(
                 "v${BuildConfig.VERSION_NAME}",
                 color = Slate.Muted,
                 fontSize = 11.sp,
-                modifier = Modifier.padding(end = 12.dp),
+                modifier = Modifier.padding(end = 10.dp),
             )
 
-            ExtendedFloatingActionButton(
+            // New note: saves whatever is open, then starts a blank one.
+            // Deliberately smaller and quieter than the confirm button so
+            // the thumb doesn't mistake one for the other.
+            FloatingActionButton(
+                onClick = onNewNote,
+                containerColor = Slate.Secondary,
+                contentColor = Slate.Accent,
+                shape = androidx.compose.foundation.shape.CircleShape,
+                elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
+                modifier = Modifier
+                    .size(38.dp)
+                    .border(1.dp, Slate.Divider, androidx.compose.foundation.shape.CircleShape),
+            ) {
+                Icon(Icons.Filled.Add, "New note", modifier = Modifier.size(20.dp))
+            }
+
+            Spacer(Modifier.width(10.dp))
+
+            FloatingActionButton(
                 onClick = onDone,
                 containerColor = Slate.Accent,
                 contentColor = Slate.Secondary,
                 shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.height(50.dp),
+                modifier = Modifier.size(50.dp),
             ) {
-                Icon(Icons.Filled.Check, null, modifier = Modifier.size(22.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Done", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Icon(Icons.Filled.Check, "Done", modifier = Modifier.size(24.dp))
             }
         }
     }
@@ -845,8 +933,8 @@ private fun TopBar(
         if (onBrowse != null) {
             IconButton(onClick = onBrowse, modifier = Modifier.size(44.dp)) {
                 Icon(
-                    Icons.Filled.Folder, "Browse all notes",
-                    tint = Slate.Sun,
+                    Icons.Outlined.FolderOpen, "Browse all notes",
+                    tint = Slate.Muted,
                     modifier = Modifier.size(21.dp),
                 )
             }

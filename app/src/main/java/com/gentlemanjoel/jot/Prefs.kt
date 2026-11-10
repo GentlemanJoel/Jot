@@ -63,6 +63,12 @@ object Prefs {
     private const val KEY_PANEL = "panel_width"
     private const val KEY_FAB = "fab_size"
     private const val KEY_TOKEN = "github_token"
+    private const val KEY_RESUME_NEW = "resume_new_note"
+    private const val KEY_RESUME_MINS = "resume_after_minutes"
+
+    /** Minute thresholds offered for "start a new note when I come back". */
+    val RESUME_CHOICES = listOf(1, 2, 5, 15, 60)
+    const val RESUME_DEFAULT_MINS = 2
 
     /**
      * Icons offered in the picker, grouped by what a note is likely to be about.
@@ -172,6 +178,27 @@ object Prefs {
     }
 
     // ---------------- github token ----------------
+
+    // ---------------- reopen behavior ----------------
+
+    /**
+     * Whether coming back to the app after a while should drop you into a
+     * fresh note. Off by default: a quick trip to another app to copy
+     * something should put you back where you were.
+     */
+    fun resumeNew(c: Context): Boolean = prefs(c).getBoolean(KEY_RESUME_NEW, false)
+
+    fun setResumeNew(c: Context, on: Boolean) {
+        prefs(c).edit().putBoolean(KEY_RESUME_NEW, on).apply()
+    }
+
+    /** How long away counts as "a while", in minutes. */
+    fun resumeMinutes(c: Context): Int =
+        prefs(c).getInt(KEY_RESUME_MINS, RESUME_DEFAULT_MINS)
+
+    fun setResumeMinutes(c: Context, mins: Int) {
+        prefs(c).edit().putInt(KEY_RESUME_MINS, mins).apply()
+    }
 
     fun token(c: Context): String = prefs(c).getString(KEY_TOKEN, "") ?: ""
 

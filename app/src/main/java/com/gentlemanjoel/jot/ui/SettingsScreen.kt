@@ -1,5 +1,6 @@
 package com.gentlemanjoel.jot.ui
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,6 +23,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -30,9 +33,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -46,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import com.gentlemanjoel.jot.BuildConfig
 import com.gentlemanjoel.jot.FabSize
 import com.gentlemanjoel.jot.PanelWidth
+import com.gentlemanjoel.jot.Prefs
 
 @Composable
 fun SettingsScreen(
@@ -53,6 +60,10 @@ fun SettingsScreen(
     onPanelWidth: (PanelWidth) -> Unit,
     fabSize: FabSize,
     onFabSize: (FabSize) -> Unit,
+    resumeNew: Boolean,
+    onResumeNew: (Boolean) -> Unit,
+    resumeMinutes: Int,
+    onResumeMinutes: (Int) -> Unit,
     token: String,
     onToken: (String) -> Unit,
     notesPath: String,
@@ -62,6 +73,13 @@ fun SettingsScreen(
     var tokenField by remember { mutableStateOf(token) }
     var savedNote by remember { mutableStateOf(false) }
     var widthMenu by remember { mutableStateOf(false) }
+
+    // Which sections are open. Everything starts collapsed so the screen
+    // reads as a short list rather than one long scroll.
+    val open = remember { mutableStateListOf<String>() }
+    fun toggle(key: String) {
+        if (open.contains(key)) open.remove(key) else open.add(key)
+    }
 
     Column(
         Modifier
@@ -94,7 +112,12 @@ fun SettingsScreen(
                 .navigationBarsPadding()
                 .padding(horizontal = 18.dp, vertical = 16.dp)
         ) {
-            SectionLabel("Pinned panel width")
+            CollapsibleSection(
+                title = "Pin panel",
+                expanded = open.contains("pin"),
+                onToggle = { toggle("pin") },
+            ) {
+            SectionLabel("Width")
             Text(
                 "Anything under ${PanelWidth.LABEL_FLOOR}dp drops the note names and shows just the icons.",
                 color = Slate.Muted,
@@ -154,9 +177,14 @@ fun SettingsScreen(
                 }
             }
 
-            Spacer(Modifier.height(22.dp))
+            }
 
-            SectionLabel("New note button size")
+            CollapsibleSection(
+                title = "New note button",
+                expanded = open.contains("fab"),
+                onToggle = { toggle("fab") },
+            ) {
+            SectionLabel("Size")
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -205,9 +233,84 @@ fun SettingsScreen(
                 }
             }
 
-            Spacer(Modifier.height(22.dp))
+            }
 
-            SectionLabel("Notes folder")
+            CollapsibleSection(
+                title = "Reopening the app",
+                expanded = open.contains("resume"),
+                onToggle = { toggle("resume") },
+            ) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Start a new note", color = Slate.Text, fontSize = 14.sp)
+                    Text(
+                        "Only after you've been away a while. Come back sooner and you land where you left off.",
+                        color = Slate.Muted,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(top = 2.dp, end = 12.dp),
+                    )
+                }
+                Switch(
+                    checked = resumeNew,
+                    onCheckedChange = onResumeNew,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Slate.Secondary,
+                        checkedTrackColor = Slate.Accent,
+                        uncheckedThumbColor = Slate.Muted,
+                        uncheckedTrackColor = Slate.Secondary,
+                        uncheckedBorderColor = Slate.Divider,
+                    ),
+                )
+            }
+
+            if (resumeNew) {
+                SectionLabel("Away for at least")
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Prefs.RESUME_CHOICES.forEach { mins ->
+                        val selected = mins == resumeMinutes
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .height(42.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    if (selected) Slate.Accent.copy(alpha = 0.18f) else Slate.Secondary
+                                )
+                                .then(
+                                    if (selected) Modifier.border(
+                                        1.5.dp, Slate.Accent, RoundedCornerShape(10.dp)
+                                    ) else Modifier
+                                )
+                                .clickable { onResumeMinutes(mins) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                if (mins >= 60) "1 hr" else "$mins min",
+                                color = if (selected) Slate.Accent else Slate.Muted,
+                                fontSize = 12.sp,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+                }
+            }
+            }
+
+            CollapsibleSection(
+                title = "Notes folder",
+                expanded = open.contains("folder"),
+                onToggle = { toggle("folder") },
+            ) {
             Text(
                 notesPath,
                 color = Slate.Text,
@@ -218,10 +321,15 @@ fun SettingsScreen(
                 "Point Syncthing at this folder to sync with your PC. Files are plain .md, so Obsidian opens them directly.",
                 color = Slate.Muted,
                 fontSize = 13.sp,
-                modifier = Modifier.padding(top = 6.dp, bottom = 20.dp),
+                modifier = Modifier.padding(top = 6.dp, bottom = 8.dp),
             )
+            }
 
-            SectionLabel("GitHub token")
+            CollapsibleSection(
+                title = "GitHub token",
+                expanded = open.contains("token"),
+                onToggle = { toggle("token") },
+            ) {
             Text(
                 "Required because the Jot repo is private. Needs Contents: Read-only on the Jot repo.",
                 color = Slate.Muted,
@@ -259,23 +367,21 @@ fun SettingsScreen(
                 }
             }
 
-            Spacer(Modifier.height(24.dp))
+            }
 
-            SectionLabel("Updates")
+            CollapsibleSection(
+                title = "Updates",
+                expanded = open.contains("updates"),
+                onToggle = { toggle("updates") },
+            ) {
             Button(
                 onClick = onCheckUpdate,
                 colors = ButtonDefaults.buttonColors(containerColor = Slate.Secondary),
                 shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
             ) { Text("Check for updates", fontSize = 14.sp, color = Slate.Text) }
+            }
 
-            Spacer(Modifier.height(28.dp))
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(Slate.Divider)
-            )
             Text(
                 "Jot v${BuildConfig.VERSION_NAME}",
                 color = Slate.Muted,
@@ -283,6 +389,58 @@ fun SettingsScreen(
                 modifier = Modifier.padding(top = 14.dp, bottom = 30.dp),
             )
         }
+    }
+}
+
+/**
+ * A settings group that folds away. The header is the whole tap target, and
+ * the chevron flips to show which way it will go.
+ */
+@Composable
+private fun CollapsibleSection(
+    title: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .clickable { onToggle() }
+                .padding(vertical = 15.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                title.uppercase(),
+                color = if (expanded) Slate.Accent else Slate.Text,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.weight(1f))
+            Icon(
+                if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                if (expanded) "Collapse $title" else "Expand $title",
+                tint = if (expanded) Slate.Accent else Slate.Muted,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+
+        AnimatedVisibility(visible = expanded) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 14.dp)
+            ) { content() }
+        }
+
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Slate.Divider)
+        )
     }
 }
 

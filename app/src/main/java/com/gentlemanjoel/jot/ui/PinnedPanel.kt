@@ -114,16 +114,9 @@ fun PinnedPanel(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    Icons.Filled.PushPin, null,
+                    Icons.Filled.PushPin, "Pinned notes",
                     tint = Slate.Sun,
                     modifier = Modifier.size(15.dp),
-                )
-                Spacer(Modifier.width(7.dp))
-                Text(
-                    "PINNED",
-                    color = Slate.Muted,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = { editing = !editing }, modifier = Modifier.size(34.dp)) {
