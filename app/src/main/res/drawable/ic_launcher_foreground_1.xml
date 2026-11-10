@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Sun glow, sitting behind everything -->
+    <path
+        android:pathData="M33,33 m-15,0 a15,15 0 1,0 30,0 a15,15 0 1,0 -30,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="33"
+                android:centerY="33"
+                android:gradientRadius="15"
+                android:type="radial">
+                <item android:offset="0.0" android:color="#59E8A33D" />
+                <item android:offset="1.0" android:color="#00E8A33D" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Note lines, muted -->
+    <path
+        android:pathData="M31,34 L47,34"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeColor="#4D8FA3B8" />
+    <path
+        android:pathData="M31,47 L43,47"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeColor="#338FA3B8" />
+
+    <!-- The J stroke: a sunset sweeping blue -> purple -> orange -->
+    <path
+        android:pathData="M70,28 L70,62 C70,74 60,81 49,77 C43.5,75 40,70.5 39.5,65.5"
+        android:strokeWidth="11"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="38"
+                android:startY="28"
+                android:endX="72"
+                android:endY="80"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FF5B7FE0" />
+                <item android:offset="0.5" android:color="#FFA06CD9" />
+                <item android:offset="1.0" android:color="#FFF2954A" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- The sun: a small star burning at the top of the J -->
+    <path
+        android:pathData="M27,22 L39,22"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:strokeColor="#66F2C46B" />
+    <path
+        android:pathData="M33,16 L33,28"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:strokeColor="#66F2C46B" />
+    <path
+        android:pathData="M28.8,17.8 L37.2,26.2"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:strokeColor="#4DF2C46B" />
+    <path
+        android:pathData="M37.2,17.8 L28.8,26.2"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:strokeColor="#4DF2C46B" />
+    <path android:pathData="M33,22 m-6,0 a6,6 0 1,0 12,0 a6,6 0 1,0 -12,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="27"
+                android:startY="16"
+                android:endX="39"
+                android:endY="28"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FFFFD98A" />
+                <item android:offset="1.0" android:color="#FFE8A33D" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Cursor dot, picking up the gradient's blue end -->
+    <path
+        android:pathData="M64,16 h12 a3,3 0 0 1 3,3 v0 a3,3 0 0 1 -3,3 h-12 a3,3 0 0 1 -3,-3 v0 a3,3 0 0 1 3,-3 z"
+        android:fillColor="#FF7B9BEA" />
+</vector>
